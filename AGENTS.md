@@ -2,23 +2,23 @@
 
 Instructions for AI agents (and humans) working in this repository.
 
-## Status: pre-published
+## Status: public on GitHub (pre-release)
 
-This repo is **not yet published to GitHub**. It lives only on the maintainer’s
-machine at:
+**Repository:** https://github.com/derekclair/grok-micro  
+**Local path:** `/Users/derekclair/Code/github.com/derekclair/grok-micro`  
+**Default branch:** `main` (tracks `origin/main`)  
+**Visibility:** public
 
-```text
-/Users/derekclair/Code/github.com/derekclair/grok-micro
-```
+Code is on GitHub. Treat product maturity as **pre-release** until physical
+smoke against a real Codex Micro is done and documented:
 
-- Branch: `main`
-- No `origin` remote yet
-- Unit tests pass; **physical USB/BLE smoke against a real Codex Micro has not
-  been completed** in the creation environment
-- Do not announce, tag a release, or treat the project as public until the
-  publish checklist below is done
+- Unit tests pass (`pnpm verify` in `grok-micro/`, control tests in `grok-cli/`)
+- **Hardware smoke is still the gate** for calling a given revision “production
+  ready” or tagging a release
+- Do not invent release notes that claim device-verified parity without a real
+  Micro walkthrough
 
-### Next steps before first public push
+### Remaining next steps
 
 1. **Physical smoke (blocking for “production ready”)**  
    - Connect a Work Louder Codex Micro (USB preferred).  
@@ -29,31 +29,23 @@ machine at:
    - Confirm Karabiner / Logitech Options+ are not stealing HID (Work Louder
      documents interference with Micro ↔ host apps).
 
-2. **Publish to GitHub** (when smoke is acceptable):
-
-   ```sh
-   cd /Users/derekclair/Code/github.com/derekclair/grok-micro
-   gh repo create derekclair/grok-micro --public --source=. --remote=origin --description "Codex Micro control surface for Grok CLI (clean-room)"
-   git push -u origin main
-   ```
-
-   Or create an empty repo on GitHub, then:
-
-   ```sh
-   git remote add origin git@github.com:derekclair/grok-micro.git
-   git push -u origin main
-   ```
-
-3. **Post-publish hygiene**  
-   - Enable Security Advisories / private vulnerability reporting.  
+2. **Post-publish hygiene**  
+   - Enable Security Advisories / private vulnerability reporting on GitHub.  
    - Optionally add CI: `grok-micro` → `pnpm verify`; `grok-cli` →
      `bun run typecheck` + `bun test src/control/` (or `bun run test:control`).  
    - Tag `v0.3.0` only after smoke; keep README status honest until then.  
    - Consider whether the vendored full `grok-cli/` tree stays long-term or the
      public story shrinks to `grok-micro/` + `grok-cli-control.patch` only.
 
-4. **Do not push** secrets: discovery tokens, `~/.grok/control/`, API keys,
+3. **Do not push** secrets: discovery tokens, `~/.grok/control/`, API keys,
    session transcripts, or machine-local Input app storage.
+
+### Push workflow (already configured)
+
+```sh
+cd /Users/derekclair/Code/github.com/derekclair/grok-micro
+git push origin main
+```
 
 ---
 
@@ -282,7 +274,7 @@ proprietary extracts.
 - When behavior changes, update `PARITY.md` and tests in the same change set.  
 - Call out **unsupported** surfaces explicitly in README/daemon health rather
   than silent no-ops.  
-- Keep status badges/docs honest while **pre-published** and pre-smoke.
+- Keep status badges/docs honest while **pre-release** and pre-smoke.
 
 ---
 

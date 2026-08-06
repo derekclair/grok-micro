@@ -11,7 +11,7 @@ Codex Micro firmware or native modules.
 | --- | --- |
 | **Platform** | macOS (Node 20+, pnpm; Grok side uses Bun) |
 | **Hardware** | Codex Micro (`VID 0x303A` / `PID 0x8360`) or Creator Micro V2-compatible |
-| **Status** | Unit-verified; physical USB/BLE smoke tests still recommended |
+| **Status** | Public pre-release on [GitHub](https://github.com/derekclair/grok-micro); unit-verified; physical USB/BLE smoke still recommended |
 
 ## Repository layout
 
@@ -122,8 +122,10 @@ See [`SECURITY.md`](SECURITY.md).
 
 Full notices: [`LICENSE`](LICENSE), [`grok-micro/ATTRIBUTION.md`](grok-micro/ATTRIBUTION.md).
 
-## Publishing note
+## Distribution note
 
-This monorepo is intended for public distribution under MIT. It does **not**
-ship proprietary Work Louder/OpenAI binaries. Prefer the `grok-cli-control.patch`
-path if you already track upstream Grok CLI and only want the control-plane delta.
+Published at [github.com/derekclair/grok-micro](https://github.com/derekclair/grok-micro)
+under MIT as a **pre-release** until hardware smoke is documented. It does
+**not** ship proprietary Work Louder/OpenAI binaries. Prefer the
+`grok-cli-control.patch` path if you already track upstream Grok CLI and only
+want the control-plane delta.
