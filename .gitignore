@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs that are regenerated on install (bridge dist is tracked on purpose)
+grok-cli/dist/
+grok-micro/packages/protocol/dist/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs and coverage
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+
+# Local runtime state
+tmp/
+temp/
+*.sock

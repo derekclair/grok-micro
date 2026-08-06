@@ -1,24 +1,35 @@
-# Grok Micro replication
+# Grok Micro
 
-This deliverable is a clean-room Work Louder Codex Micro integration for
-[`superagent-ai/grok-cli`](https://github.com/superagent-ai/grok-cli), based on
-the observable behavior of Codex desktop `26.727.51351` (build `6119`). It does
-not redistribute the proprietary native implementation.
+Clean-room [Work Louder Codex Micro](https://worklouder.cc) control-surface
+integration for [Grok CLI](https://github.com/superagent-ai/grok-cli).
 
-## Contents
+Six live Agent Keys, factory lighting/gestures, and authenticated routing to the
+exact Grok session each key represents — without redistributing proprietary
+Codex Micro firmware or native modules.
 
-- `grok-cli/` — a complete source tree based on Grok CLI commit
-  `fb97af83f06dca873281d60168430f06c8de6324`, extended with an authenticated
-  local control protocol and semantic UI actions.
-- `grok-cli-control.patch` — the same Grok-side changes as an applyable patch.
-- `grok-micro/` — the macOS HID daemon, protocol package, installer, tests, and
-  diagnostics.
-- `PARITY.md` and `native-parity-fixtures.json` — the clean-room behavioral
-  contract and executable acceptance data.
+| | |
+| --- | --- |
+| **Platform** | macOS (Node 20+, pnpm; Grok side uses Bun) |
+| **Hardware** | Codex Micro (`VID 0x303A` / `PID 0x8360`) or Creator Micro V2-compatible |
+| **Status** | Unit-verified; physical USB/BLE smoke tests still recommended |
 
-## Install
+## Repository layout
 
-To use the included Grok source tree:
+```text
+.
+├── grok-micro/                 # HID daemon, protocol package, doctor, hooks
+├── grok-cli/                   # Grok CLI tree + local control protocol (v1)
+├── grok-cli-control.patch      # Same Grok-side changes for a clean upstream checkout
+├── PARITY.md                   # Native behavioral contract
+├── native-parity-fixtures.json # Executable acceptance data
+└── SECURITY.md
+```
+
+## Quick start
+
+### 1. Grok CLI with local control
+
+Use the included tree:
 
 ```sh
 cd grok-cli
@@ -28,7 +39,21 @@ bun run build
 node dist/index.js
 ```
 
-In another terminal, install and start the hardware daemon:
+Or patch a pinned upstream checkout:
+
+```sh
+git clone https://github.com/superagent-ai/grok-cli.git
+cd grok-cli
+git checkout fb97af83f06dca873281d60168430f06c8de6324
+git apply /path/to/grok-micro/grok-cli-control.patch
+bun install && bun run typecheck && bun run build
+```
+
+Interactive sessions publish `~/.grok/control/<pid>.json` (mode `0600` in a
+`0700` directory). Treat those records as secrets. See
+[`grok-cli/docs/local-control.md`](grok-cli/docs/local-control.md).
+
+### 2. Hardware daemon
 
 ```sh
 cd grok-micro
@@ -37,73 +62,68 @@ pnpm verify
 pnpm start
 ```
 
-The Grok process publishes a private discovery record in `~/.grok/control`.
-The daemon validates ownership and permissions, authenticates with a random
-per-process token, subscribes to lifecycle events, and sends acknowledged
-semantic actions. No prompt, tool argument, model output, transcript, or token
-is stored by the daemon.
+Grant **Input Monitoring** when macOS prompts. Run `pnpm doctor` if the device
+is not detected. Work Louder documents that Karabiner / Logitech Options+ can
+interfere with Micro communication.
 
-To patch a clean checkout instead:
+Optional degraded lighting-only hooks (no authenticated action route):
 
 ```sh
-git clone https://github.com/superagent-ai/grok-cli.git
-cd grok-cli
-git checkout fb97af83f06dca873281d60168430f06c8de6324
-git apply ../grok-cli-control.patch
-bun install
-bun run typecheck
-bun run build
+pnpm install-hooks
+pnpm uninstall-hooks
 ```
 
-## Replicated behavior
+## What is replicated
 
-The implementation reproduces the native HID framing and RPC rules, random
-IDs and ACK correlation, 50 ms serialization, timeout retry, USB/model
-preference, reconnect timings, battery refresh, lock suppression, public
-connection states, factory colors/effects, four-second selection accent,
-voice/snaking precedence, input quiet time, auto-dim, six recent session keys,
-last-displayed-assignment routing, exact agent-key double tap, PTT and encoder
-timelines, joystick sectors, ACT11 suppression, and deterministic Terminal/iTerm
-focus.
+- Native HID framing/RPC (report id 6, 50 ms queue pacing, random ids `0..998`,
+  10 s ACK + single retry)
+- Factory palette and effects, selection accent, voice/snaking precedence,
+  auto-dim, input-quiet debounce
+- Six-session recent registry with stable slots and last-displayed routing
+- Agent double-tap focus, ACT11 suppression, encoder/joystick/PTT timelines
+- Semantic Grok actions: session select/fork, submit, guarded approve/decline,
+  plan toggle, reasoning adjust, 160 px conversation scroll
 
-Grok-side semantic controls cover session select/fork, submit, guarded
-approve/decline, plan toggle, reasoning adjustment, and exact 160 px
-conversation scrolling. Plan questions produce the native awaiting-response
-state, while approval controls remain guarded to a genuine pending approval.
+**Explicitly unsupported** (fail closed as `unsupported`, never approximated):
 
-## Exact compatibility boundary
+- Codex FAST mode, native voice PTT, composer-highlight navigation, sidebar /
+  history navigation, `/settings/codex-micro`
 
-The following native concepts do not exist in Grok CLI or its xAI runtime:
-
-- Codex FAST mode
-- native voice capture/PTT transcription
-- Codex composer-highlight navigation
-- Codex sidebar and view-history navigation
-- the `/settings/codex-micro` screen
-
-They fail explicitly as `unsupported`; the adapter never substitutes a
-similar mode or injects guessed terminal keystrokes. This preserves exactness
-for every implemented action, but means the full physical surface cannot be
-truthfully called 100% feature-complete until Grok gains those product
-concepts.
+Details: [`PARITY.md`](PARITY.md) and
+[`grok-micro/README.md`](grok-micro/README.md).
 
 ## Verification
 
-- Grok control adapter: TypeScript and build pass; 12 focused tests pass.
-- Hardware package: both builds and TypeScript checks pass; 83 tests pass.
-- Native framing and lighting fixture snapshots pass.
-- `grok-cli-control.patch` applies cleanly to the pinned upstream commit.
-- Both worktrees pass `git diff --check`.
+Run on this tree (2026-08-05):
 
-Physical USB/Bluetooth smoke testing was not possible in this environment.
-Before production use, run `pnpm doctor`, grant macOS Input Monitoring, and
-exercise the real device against the acceptance cases in `PARITY.md`.
+| Package | Result |
+| --- | --- |
+| `grok-micro` `pnpm verify` | build + `tsc` + **83** tests pass |
+| `grok-cli` control suite | **8** focused tests pass; `tsc --noEmit` clean |
+
+Physical device smoke tests are still required before calling a given machine
+“production ready.” Exercise the acceptance cases in `PARITY.md`.
+
+## Security model
+
+- Discovery: owner + mode checks, live PID, absolute socket path, token length
+- Auth: first NDJSON line must authenticate; constant-time token compare
+- Actions: no prompt/transcript storage in the daemon; unsupported ≠ keystroke guess
+
+See [`SECURITY.md`](SECURITY.md).
 
 ## Attribution
 
-The daemon derives its MIT-licensed protocol foundation from
-[`qGolem/claude-micro`](https://github.com/qGolem/claude-micro). Research also
-cross-checked
-[`thannous/claude-codex-micro`](https://github.com/thannous/claude-codex-micro)
-and [`eliBenven/freemicro`](https://github.com/eliBenven/freemicro). Native
-Codex behavior and the included parity fixtures remain the acceptance authority.
+- Protocol foundation and lineage: [qGolem/claude-micro](https://github.com/qGolem/claude-micro) (MIT)
+- Research cross-checks: [thannous/claude-codex-micro](https://github.com/thannous/claude-codex-micro),
+  [eliBenven/freemicro](https://github.com/eliBenven/freemicro)
+- Grok CLI base: [superagent-ai/grok-cli](https://github.com/superagent-ai/grok-cli)
+- Native Codex Micro behavior remains the acceptance authority for parity fixtures
+
+Full notices: [`LICENSE`](LICENSE), [`grok-micro/ATTRIBUTION.md`](grok-micro/ATTRIBUTION.md).
+
+## Publishing note
+
+This monorepo is intended for public distribution under MIT. It does **not**
+ship proprietary Work Louder/OpenAI binaries. Prefer the `grok-cli-control.patch`
+path if you already track upstream Grok CLI and only want the control-plane delta.

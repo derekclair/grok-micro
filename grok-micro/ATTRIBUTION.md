@@ -8,4 +8,8 @@ under the MIT License. Original copyright:
 The dependency-free `packages/protocol` codec, its documentation, and its tests
 are preserved as the licensed protocol foundation. Grok-specific registry,
 control routing, native gesture, lighting, daemon, installer, and documentation
-changes are modifications under the same license. See [LICENSE](LICENSE).
+changes are modifications under the same license:
+
+> Copyright (c) 2026 Derek Clair and contributors
+
+See [LICENSE](LICENSE).
