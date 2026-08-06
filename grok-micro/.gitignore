@@ -1,0 +1,18 @@
+node_modules/
+*.tgz
+
+# The npm package's build output is produced at publish time.
+packages/protocol/dist/
+
+# packages/bridge/dist is deliberately COMMITTED: Claude Code installs this
+# plugin by cloning the repo and runs the hooks with no build or install step,
+# so the built event forwarder must be present in the checkout. CI rebuilds it
+# and fails if the committed output is stale.
+.DS_Store
+npm-debug.log*
+
+# Local hardware experiments; the bridge runtime does not use these.
+hid-monitor.swift
+probe.cjs
+start-bridge.command
+harness/

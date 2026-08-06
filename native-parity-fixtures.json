@@ -1,0 +1,610 @@
+{
+  "schemaVersion": 1,
+  "authority": {
+    "product": "Codex Micro",
+    "codexDesktopVersion": "26.727.51351",
+    "codexDesktopBuild": "6119",
+    "basis": "Clean-room observable behavior and wire facts",
+    "proprietaryCodeIncluded": false
+  },
+  "constants": {
+    "device": {
+      "vendorId": 12346,
+      "vendorIdHex": "0x303A",
+      "codexMicroProductId": 33632,
+      "codexMicroProductIdHex": "0x8360",
+      "creatorMicroV2ProductIds": [33431, 33432],
+      "usagePage": 65280,
+      "usagePageHex": "0xFF00",
+      "candidateOrder": [
+        "usb:codex-micro",
+        "usb:creator-micro-v2",
+        "bluetooth:codex-micro",
+        "bluetooth:creator-micro-v2"
+      ]
+    },
+    "hid": {
+      "reportId": 6,
+      "rpcChannel": 2,
+      "reportLengthBytes": 64,
+      "headerLengthBytes": 3,
+      "payloadCapacityBytes": 61,
+      "macosNonExclusive": true
+    },
+    "rpc": {
+      "idMinimumInclusive": 0,
+      "idMaximumExclusive": 999,
+      "requestQueueConcurrency": 1,
+      "interRequestDelayMs": 50,
+      "responseTimeoutMs": 10000,
+      "immediateTimeoutRetries": 1,
+      "requestFields": ["method", "params", "id"],
+      "notificationMethodFields": ["method", "m"],
+      "notificationParamsFields": ["params", "p"],
+      "responseIdFields": ["id", "i"]
+    },
+    "methods": {
+      "deviceStatus": "device.status",
+      "threadLighting": "v.oai.thstatus",
+      "rgbConfig": "v.oai.rgbcfg",
+      "hidNotification": "v.oai.hid",
+      "joystickNotification": "v.oai.rad"
+    },
+    "actionCodes": {
+      "release": 0,
+      "press": 1,
+      "encoderDetent": 2
+    },
+    "effects": {
+      "off": 0,
+      "solid": 1,
+      "snake": 2,
+      "rainbow": 3,
+      "breath": 4,
+      "gradient": 5,
+      "shallowBreath": 6
+    },
+    "colors": {
+      "working": 3166206,
+      "unread": 65356,
+      "idle": 16777215,
+      "awaitingApproval": 16739584,
+      "awaitingResponse": 16739584,
+      "error": 16711731,
+      "off": 0,
+      "voiceRecording": 3050327,
+      "voiceProcessing": 16777215,
+      "voiceCompleted": 16777215
+    },
+    "timingsMs": {
+      "agentDoubleTap": 350,
+      "pushToTalkLatch": 350,
+      "microphoneRealtimeLongPress": 500,
+      "encoderLongPress": 500,
+      "selectionAccent": 4000,
+      "inputQuiet": 100,
+      "composerHighlight": 2000,
+      "joystickHud": 600,
+      "conversationScrollStepPixels": 160,
+      "transportReconnectBackoff": [1000, 2000, 5000, 10000],
+      "lightingRecoveryBackoff": [1000, 2000, 5000, 10000],
+      "topologySettle": [250, 1000, 3000],
+      "topologyFallbackScan": 30000,
+      "batteryRefresh": 60000,
+      "defaultAutoDim": 180000
+    }
+  },
+  "defaults": {
+    "agentSource": "recent",
+    "singleTapAgentKeys": false,
+    "brightnessPercent": 100,
+    "lightingAutoOff": "3-minutes",
+    "voiceButtonMode": "push-to-talk",
+    "encoderMode": "composer-navigation",
+    "agentKeys": ["AG00", "AG01", "AG02", "AG03", "AG04", "AG05"],
+    "actionSlots": {
+      "ACT06": {
+        "keycapId": "FAST",
+        "action": { "type": "command", "commandId": "composer.toggleFastMode" }
+      },
+      "ACT07": {
+        "keycapId": "APPR",
+        "action": { "type": "command", "commandId": "approval.approve" }
+      },
+      "ACT08": {
+        "keycapId": "REJ",
+        "action": { "type": "command", "commandId": "approval.decline" }
+      },
+      "ACT09": {
+        "keycapId": "SPLIT",
+        "action": { "type": "command", "commandId": "forkThread" }
+      },
+      "ACT10_ACT11": {
+        "keycapId": "MIC",
+        "action": { "type": "push-to-talk" },
+        "handledEventKey": "ACT10",
+        "ignoredEventKey": "ACT11"
+      },
+      "ACT12": {
+        "keycapId": "CODEX",
+        "action": { "type": "command", "commandId": "composer.submit" }
+      }
+    },
+    "analogStick": {
+      "up": { "type": "command", "commandId": "composer.togglePlanMode" },
+      "right": { "type": "command", "commandId": "navigateForward" },
+      "down": { "type": "command", "commandId": "toggleSidebar" },
+      "left": { "type": "command", "commandId": "navigateBack" }
+    },
+    "encoderCustom": {
+      "left": null,
+      "right": null,
+      "click": null,
+      "longPress": null
+    },
+    "agentSourceOptions": ["pinned", "recent", "priority", "custom"],
+    "encoderModeOptions": [
+      "composer-navigation",
+      "reasoning",
+      "conversation-scroll",
+      "custom"
+    ],
+    "voiceButtonModeOptions": ["push-to-talk", "realtime"],
+    "lightingAutoOffOptions": [
+      "off",
+      "30-seconds",
+      "1-minute",
+      "3-minutes",
+      "10-minutes",
+      "30-minutes",
+      "1-hour"
+    ]
+  },
+  "statusDerivation": {
+    "localPrecedence": [
+      { "when": { "status": "error" }, "result": "error" },
+      { "when": { "pendingChip": "approval" }, "result": "awaiting-approval" },
+      { "when": { "pendingChip": "response" }, "result": "awaiting-response" },
+      { "when": { "status": "loading" }, "result": "working" },
+      { "when": { "unread": true }, "result": "unread" },
+      { "when": {}, "result": "idle" }
+    ],
+    "remotePrecedence": [
+      { "when": { "latestTurnStatus": "failed" }, "result": "error" },
+      {
+        "whenAny": [
+          { "latestTurnStatus": "pending" },
+          { "latestTurnStatus": "in_progress" }
+        ],
+        "result": "working"
+      },
+      { "when": { "unread": true }, "result": "unread" },
+      { "when": {}, "result": "idle" }
+    ],
+    "selectedFocusedUnreadOverride": {
+      "when": { "selected": true, "appWindowFocused": true, "derivedStatus": "unread" },
+      "result": "idle"
+    },
+    "ambientPrecedence": [
+      "snakingAmbientStatus",
+      "voiceState",
+      "selectedSlot",
+      "off"
+    ]
+  },
+  "connectionFixtures": [
+    {
+      "name": "cold-connect",
+      "states": ["not-detected", "detected", "connected"],
+      "lifecycleTransition": "connected"
+    },
+    {
+      "name": "detected-connect-failure",
+      "states": ["not-detected", "detected", "error"],
+      "error": "connection-failed",
+      "lifecycleTransition": "connection-failed",
+      "retryDelaysMs": [1000, 2000, 5000, 10000, 10000]
+    },
+    {
+      "name": "active-transport-loss-and-recovery",
+      "states": ["connected", "error", "connected"],
+      "error": "transport-unavailable",
+      "lifecycleTransitions": ["connection-lost", "reconnected"]
+    },
+    {
+      "name": "successful-usb-bluetooth-handoff",
+      "states": ["connected", "not-detected", "detected", "connected"],
+      "cause": "transport-handoff",
+      "lifecycleTransitions": []
+    },
+    {
+      "name": "locked-session-input",
+      "input": { "method": "v.oai.hid", "params": { "k": "AG00", "act": 1 } },
+      "sessionLocked": true,
+      "expected": { "routedEvents": [], "ownerWindow": null }
+    }
+  ],
+  "inputFixtures": [
+    {
+      "name": "agent-first-tap-background-navigation",
+      "settings": { "singleTapAgentKeys": false },
+      "displayedAssignment": { "slot": 0, "threadKey": "thread-a" },
+      "events": [
+        { "atMs": 0, "key": "AG00", "act": 1 }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "navigate-thread", "threadKey": "thread-a", "foreground": false }
+      ]
+    },
+    {
+      "name": "agent-double-tap-foreground",
+      "settings": { "singleTapAgentKeys": false },
+      "displayedAssignment": { "slot": 0, "threadKey": "thread-a" },
+      "events": [
+        { "atMs": 0, "key": "AG00", "act": 1 },
+        { "atMs": 349, "key": "AG00", "act": 1 }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "navigate-thread", "threadKey": "thread-a", "foreground": false },
+        { "atMs": 349, "type": "navigate-thread", "threadKey": "thread-a", "foreground": true }
+      ]
+    },
+    {
+      "name": "agent-double-tap-boundary-miss",
+      "settings": { "singleTapAgentKeys": false },
+      "displayedAssignment": { "slot": 0, "threadKey": "thread-a" },
+      "events": [
+        { "atMs": 0, "key": "AG00", "act": 1 },
+        { "atMs": 351, "key": "AG00", "act": 1 }
+      ],
+      "expectedForegroundActions": 0
+    },
+    {
+      "name": "agent-single-tap-setting",
+      "settings": { "singleTapAgentKeys": true },
+      "displayedAssignment": { "slot": 2, "threadKey": "thread-c" },
+      "events": [
+        { "atMs": 0, "key": "AG02", "act": 1 }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "navigate-thread", "threadKey": "thread-c", "foreground": true }
+      ]
+    },
+    {
+      "name": "act11-is-suppressed",
+      "events": [
+        { "atMs": 0, "key": "ACT11", "act": 1 },
+        { "atMs": 5, "key": "ACT10", "act": 1 },
+        { "atMs": 100, "key": "ACT10", "act": 0 },
+        { "atMs": 105, "key": "ACT11", "act": 0 }
+      ],
+      "expectedGestureEvents": [
+        { "atMs": 5, "type": "push-to-talk-press" },
+        { "atMs": 100, "type": "push-to-talk-release" }
+      ]
+    },
+    {
+      "name": "push-to-talk-hold",
+      "events": [
+        { "atMs": 0, "type": "press" },
+        { "atMs": 500, "type": "release" }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "start" },
+        { "atMs": 500, "type": "stop" }
+      ]
+    },
+    {
+      "name": "push-to-talk-short-press",
+      "events": [
+        { "atMs": 0, "type": "press" },
+        { "atMs": 100, "type": "release" },
+        { "atMs": 350, "type": "timeout" }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "start" },
+        { "atMs": 350, "type": "stop" }
+      ]
+    },
+    {
+      "name": "push-to-talk-double-tap-latch",
+      "events": [
+        { "atMs": 0, "type": "press" },
+        { "atMs": 100, "type": "release" },
+        { "atMs": 300, "type": "press" },
+        { "atMs": 450, "type": "release" },
+        { "atMs": 1000, "type": "press" },
+        { "atMs": 1100, "type": "release" }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "start" },
+        { "atMs": 1000, "type": "stop" }
+      ]
+    },
+    {
+      "name": "encoder-composer-navigation",
+      "mode": "composer-navigation",
+      "events": [
+        { "atMs": 0, "key": "ENC_CW", "act": 2 },
+        { "atMs": 100, "key": "ENC_CC", "act": 2 },
+        { "atMs": 200, "key": "ENC_CLK", "act": 1 },
+        { "atMs": 300, "key": "ENC_CLK", "act": 0 }
+      ],
+      "expectedActions": [
+        { "atMs": 0, "type": "move", "direction": "previous" },
+        { "atMs": 100, "type": "move", "direction": "next" },
+        { "atMs": 300, "type": "activate-highlighted" }
+      ]
+    },
+    {
+      "name": "encoder-long-press-settings",
+      "mode": "composer-navigation",
+      "events": [
+        { "atMs": 0, "key": "ENC_CLK", "act": 1 },
+        { "atMs": 500, "type": "timeout" },
+        { "atMs": 700, "key": "ENC_CLK", "act": 0 }
+      ],
+      "expectedActions": [
+        { "atMs": 500, "type": "navigate", "path": "/settings/codex-micro" }
+      ]
+    },
+    {
+      "name": "analog-threshold-and-direction-change",
+      "events": [
+        { "atMs": 0, "angle": 0.75, "distance": 0.49 },
+        { "atMs": 10, "angle": 0.75, "distance": 0.5 },
+        { "atMs": 20, "angle": 0.76, "distance": 1 },
+        { "atMs": 30, "angle": 0.25, "distance": 1 },
+        { "atMs": 40, "angle": 0, "distance": 0 }
+      ],
+      "expectedActions": [
+        { "atMs": 10, "type": "command", "commandId": "composer.togglePlanMode" },
+        { "atMs": 30, "type": "command", "commandId": "toggleSidebar" }
+      ],
+      "expectedActiveDirections": [null, "up", "up", "down", null]
+    }
+  ],
+  "statusFixtures": [
+    {
+      "name": "local-error-wins-over-approval-loading-unread",
+      "input": { "status": "error", "pendingChip": "approval", "unread": true },
+      "expected": "error"
+    },
+    {
+      "name": "local-approval-wins-over-response-loading-unread",
+      "input": { "status": "loading", "pendingChip": "approval", "unread": true },
+      "expected": "awaiting-approval"
+    },
+    {
+      "name": "local-response-wins-over-loading-unread",
+      "input": { "status": "loading", "pendingChip": "response", "unread": true },
+      "expected": "awaiting-response"
+    },
+    {
+      "name": "local-loading-wins-over-unread",
+      "input": { "status": "loading", "pendingChip": null, "unread": true },
+      "expected": "working"
+    },
+    {
+      "name": "selected-focused-unread-renders-idle",
+      "input": {
+        "status": "idle",
+        "pendingChip": null,
+        "unread": true,
+        "selected": true,
+        "appWindowFocused": true
+      },
+      "derived": "unread",
+      "expectedRendered": "idle"
+    },
+    {
+      "name": "remote-failed-wins",
+      "input": { "latestTurnStatus": "failed", "unread": true },
+      "expected": "error"
+    },
+    {
+      "name": "remote-in-progress-wins-over-unread",
+      "input": { "latestTurnStatus": "in_progress", "unread": true },
+      "expected": "working"
+    }
+  ],
+  "lightingFixtures": [
+    {
+      "name": "mixed-agent-statuses-full-brightness",
+      "input": {
+        "brightness": 1,
+        "slots": [
+          { "id": 0, "status": "working", "selected": true },
+          { "id": 1, "status": "unread", "selected": false },
+          { "id": 2, "status": "idle", "selected": false },
+          { "id": 3, "status": "awaiting-approval", "selected": false },
+          { "id": 4, "status": "awaiting-response", "selected": false, "pulsing": true },
+          { "id": 5, "status": "error", "selected": false }
+        ]
+      },
+      "expectedThreadLightingRpc": {
+        "method": "v.oai.thstatus",
+        "params": [
+          { "id": 0, "c": 3166206, "b": 1, "e": 4, "s": 0.4, "sk": 0, "sa": 0 },
+          { "id": 1, "c": 65356, "b": 1, "e": 1, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 2, "c": 16777215, "b": 1, "e": 1, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 3, "c": 16739584, "b": 1, "e": 1, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 4, "c": 16739584, "b": 1, "e": 4, "s": 0.4, "sk": 0, "sa": 0 },
+          { "id": 5, "c": 16711731, "b": 1, "e": 1, "s": 0, "sk": 0, "sa": 0 }
+        ]
+      }
+    },
+    {
+      "name": "selected-working-during-accent",
+      "input": {
+        "brightness": 1,
+        "selectedSlot": { "status": "working" },
+        "selectionAccentVisible": true,
+        "voiceState": "idle"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 2, "b": 1, "s": 0.4, "m": 0, "c": 3166206 },
+          "keys": { "e": 1, "b": 1, "s": 0, "m": 0, "c": 3166206 }
+        }
+      }
+    },
+    {
+      "name": "selected-working-after-accent",
+      "input": {
+        "brightness": 1,
+        "selectedSlot": { "status": "working" },
+        "selectionAccentVisible": false,
+        "voiceState": "idle"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 2, "b": 1, "s": 0.4, "m": 0, "c": 3166206 },
+          "keys": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 }
+        }
+      }
+    },
+    {
+      "name": "selected-unread-during-accent",
+      "input": {
+        "brightness": 1,
+        "selectedSlot": { "status": "unread" },
+        "selectionAccentVisible": true,
+        "voiceState": "idle"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 1, "b": 1, "s": 0, "m": 0, "c": 65356 },
+          "keys": { "e": 1, "b": 1, "s": 0, "m": 0, "c": 65356 }
+        }
+      }
+    },
+    {
+      "name": "selected-unread-after-accent",
+      "input": {
+        "brightness": 1,
+        "selectedSlot": { "status": "unread" },
+        "selectionAccentVisible": false,
+        "voiceState": "idle"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 },
+          "keys": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 }
+        }
+      }
+    },
+    {
+      "name": "voice-recording-overrides-selection",
+      "input": {
+        "brightness": 0.75,
+        "selectedSlot": { "status": "working" },
+        "selectionAccentVisible": true,
+        "voiceState": "recording"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 2, "b": 0.75, "s": 0.4, "m": 0, "c": 3050327 },
+          "keys": { "e": 1, "b": 0.75, "s": 0, "m": 0, "c": 3050327 }
+        }
+      }
+    },
+    {
+      "name": "snaking-status-overrides-voice-and-selection",
+      "input": {
+        "brightness": 1,
+        "selectedSlot": { "status": "working" },
+        "selectionAccentVisible": true,
+        "voiceState": "recording",
+        "snakingAmbientStatus": "error"
+      },
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 2, "b": 1, "s": 0.4, "m": 0, "c": 16711731 },
+          "keys": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 }
+        }
+      }
+    },
+    {
+      "name": "auto-dim-all-off",
+      "expectedRgbConfigRpc": {
+        "method": "v.oai.rgbcfg",
+        "params": {
+          "ambient": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 },
+          "keys": { "e": 0, "b": 0, "s": 0, "m": 0, "c": 0 }
+        }
+      },
+      "expectedThreadLightingRpc": {
+        "method": "v.oai.thstatus",
+        "params": [
+          { "id": 0, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 1, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 2, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 3, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 4, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 },
+          { "id": 5, "c": 0, "b": 0, "e": 0, "s": 0, "sk": 0, "sa": 0 }
+        ]
+      }
+    }
+  ],
+  "framingFixtures": [
+    {
+      "name": "single-packet-device-status",
+      "request": { "method": "device.status", "params": null, "id": 7 },
+      "utf8": "{\"method\":\"device.status\",\"params\":null,\"id\":7}",
+      "expectedPacketPrefixDecimal": [6, 2, 47, 123, 34, 109, 101, 116, 104, 111, 100, 34],
+      "expectedPacketLength": 64,
+      "expectedPacketCount": 1
+    },
+    {
+      "name": "fragmentation-boundary",
+      "payloadLengths": [0, 1, 61, 62, 122, 123],
+      "expectedPacketCounts": [0, 1, 1, 2, 2, 3]
+    },
+    {
+      "name": "compact-hid-notification",
+      "json": { "m": "v.oai.hid", "p": { "k": "AG03", "act": 1 } },
+      "expected": { "key": "AG03", "act": 1, "agent": null, "slot": 3 }
+    },
+    {
+      "name": "compact-joystick-notification",
+      "json": { "m": "v.oai.rad", "p": { "a": 0.75, "d": 1 } },
+      "expected": { "angle": 0.75, "distance": 1 }
+    }
+  ],
+  "acceptanceCases": [
+    "enumeration-filters-vid-pid-usage-page",
+    "usb-precedes-bluetooth",
+    "codex-micro-precedes-creator-micro-v2-within-transport",
+    "macos-open-is-non-exclusive",
+    "rpc-request-has-no-jsonrpc-field",
+    "rpc-id-is-0-through-998",
+    "unicode-is-escaped-before-fragmentation",
+    "hid-reports-are-64-bytes-with-61-byte-payload",
+    "rpc-queue-is-serial-with-50ms-gap",
+    "rpc-times-out-at-10s-and-retries-once",
+    "topology-watcher-and-fallback-scan-reconcile",
+    "usb-bluetooth-handoff-does-not-false-notify",
+    "locked-session-drops-input",
+    "only-primary-owner-publishes-lighting",
+    "status-precedence-matches-local-and-remote-fixtures",
+    "palette-and-wire-fields-match-lighting-fixtures",
+    "rgbcfg-is-written-before-thstatus",
+    "lighting-writes-deduplicate-identical-models",
+    "input-quiet-defers-lighting-and-battery-for-100ms",
+    "auto-dim-restores-on-hid-and-joystick-above-0.1",
+    "agent-routing-uses-last-displayed-thread-key",
+    "agent-double-tap-window-is-inclusive-through-350ms",
+    "act11-is-ignored-and-act10-drives-microphone",
+    "push-to-talk-fsm-matches-all-timelines",
+    "encoder-long-press-is-500ms",
+    "analog-threshold-and-angle-sectors-are-exact",
+    "defaults-match-defaults-object"
+  ]
+}

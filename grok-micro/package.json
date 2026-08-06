@@ -1,0 +1,21 @@
+{
+  "name": "grok-micro",
+  "private": true,
+  "version": "0.3.0",
+  "description": "Native Codex Micro control-surface replication for Grok CLI.",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "check": "pnpm --recursive run check",
+    "test": "pnpm --recursive run test",
+    "verify": "pnpm run build && pnpm run check && pnpm run test",
+    "prepare": "pnpm --recursive run build",
+    "doctor": "node packages/bridge/dist/doctor.js",
+    "start": "node packages/bridge/dist/daemon.js",
+    "install-hooks": "node packages/bridge/dist/install.js",
+    "uninstall-hooks": "node packages/bridge/dist/install.js --uninstall"
+  }
+}

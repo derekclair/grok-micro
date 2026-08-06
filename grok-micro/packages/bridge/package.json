@@ -1,0 +1,30 @@
+{
+  "name": "grok-micro-bridge",
+  "private": true,
+  "version": "0.3.0",
+  "description": "Authenticated Grok CLI bridge for the Work Louder Codex Micro.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/daemon.js",
+    "event": "node dist/event.js",
+    "doctor": "node dist/doctor.js",
+    "install-hooks": "node dist/install.js",
+    "uninstall-hooks": "node dist/install.js --uninstall",
+    "check": "tsc --noEmit",
+    "test": "pnpm run build && node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "codex-micro-protocol": "workspace:*",
+    "node-hid": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

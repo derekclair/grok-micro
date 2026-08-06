@@ -1,0 +1,1534 @@
+diff --git a/README.md b/README.md
+index c103deb..0597486 100644
+--- a/README.md
++++ b/README.md
+@@ -316,6 +316,15 @@ Hook commands receive JSON on **stdin** (event details) and can return JSON on *
+ 
+ **Supported events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `PreCompact`, `PostCompact`, `Notification`, `InstructionsLoaded`, `CwdChanged`.
+ 
++### Local control surfaces
++
++Interactive sessions also expose an authenticated, per-process Unix socket for
++accessibility tools and hardware controllers. It provides semantic submit,
++interrupt, mode, approval, and session actions plus lifecycle events; unsupported
++actions fail explicitly instead of injecting approximate keystrokes. See
++[`docs/local-control.md`](docs/local-control.md) for discovery, protocol, and
++security details. Set `GROK_CONTROL_DISABLE=1` to turn it off.
++
+ ---
+ 
+ ## Instructions & project brain
+diff --git a/docs/local-control.md b/docs/local-control.md
+new file mode 100644
+index 0000000..07dbe9a
+--- /dev/null
++++ b/docs/local-control.md
+@@ -0,0 +1,69 @@
++# Local control protocol
++
++Interactive Grok sessions expose a local, authenticated control socket for
++accessibility tools and hardware control surfaces. Headless runs do not start a
++socket. Set `GROK_CONTROL_DISABLE=1` to disable it.
++
++## Discovery and security
++
++Each process writes `~/.grok/control/<pid>.json` with mode `0600`; the directory
++is mode `0700`. The record contains protocol version, pid, session id, cwd,
++Unix-socket path, a random 256-bit token, and creation time. The socket is mode
++`0600`. It also carries a recent-session catalog plus `TERM_PROGRAM`,
++`TMUX_PANE`, and tty metadata so a controller can route Agent Keys and focus the
++owning terminal without guessing. Treat the discovery record as a secret and
++never copy it into a project.
++
++The protocol is versioned NDJSON. A client must authenticate as its first line:
++
++```json
++{"version":1,"type":"authenticate","token":"<token from discovery record>"}
++```
++
++The server replies with `ready`, then replays a bounded recent event stream.
++Every subsequent action carries a caller-selected id:
++
++```json
++{"version":1,"type":"action","id":"42","action":{"type":"mode.cycle"}}
++```
++
++Results use the same id and return either `ok: true` or a typed error. Important
++error codes include `unsupported`, `not_pending`, `not_active`, `busy`, and
++`unavailable`. Unsupported actions are never translated to approximate
++keystrokes.
++
++## Supported actions
++
++- `composer.submit`
++- `turn.interrupt`
++- `mode.cycle`
++- `composer.togglePlanMode`
++- `approval.respond` with `decision: "approve" | "decline"`
++- `session.new`
++- `thread.select` with `sessionId`
++- `thread.fork`
++- `reasoning.adjust` with `direction: "increase" | "decrease"`
++- `conversation.scroll` with `direction: "up" | "down" | "bottom"`
++
++Thread selection is restricted to the current workspace. Fork creates and
++switches to a new persisted session containing the current transcript.
++
++Fast mode, sidebar, back/forward navigation, and settings navigation return
++`unsupported` because Grok currently has no exact semantic surface for them.
++
++The focused verification command for this integration is:
++
++```bash
++bun run test:control
++```
++
++## Events
++
++Authenticated clients receive `event` records with a monotonic `seq`. Current
++events cover session open/close/change/catalog, mode changes, turn start/finish,
++tool start/finish, and approval/plan-response request and resolution. A plan
++question panel emits `input.requested` with `kind: "response"` once when it
++opens and the matching resolution once when it closes. `session.catalog` contains
++up to six recent active sessions for the current workspace. Selecting, forking,
++or starting another session emits `session.changed` but does not close the prior
++session; `session.closed` is reserved for process exit or actual deletion.
+diff --git a/package.json b/package.json
+index 9d79374..f1e6759 100644
+--- a/package.json
++++ b/package.json
+@@ -20,6 +20,7 @@
+     "start": "bun run dist/index.js",
+     "typecheck": "tsc --noEmit",
+     "test": "bunx vitest run",
++    "test:control": "bun node_modules/vitest/vitest.mjs run src/control/server.test.ts src/control/response-input.test.ts src/control/ui-actions.test.ts src/storage/sessions.test.ts src/agent/session-control.test.ts",
+     "test:watch": "bunx vitest",
+     "lint": "biome check src/",
+     "format": "biome format src/",
+diff --git a/src/agent/agent.ts b/src/agent/agent.ts
+index 51b0664..9f48fea 100644
+--- a/src/agent/agent.ts
++++ b/src/agent/agent.ts
+@@ -848,6 +848,57 @@ export class Agent {
+     };
+   }
+ 
++  listRecentSessions(limit = 6): SessionInfo[] {
++    return this.sessionStore?.listRecentSessions(limit) ?? [];
++  }
++
++  switchSession(id: string): SessionSnapshot {
++    if (!this.sessionStore || !this.workspace) {
++      throw new Error("Session persistence is disabled.");
++    }
++    const target = this.sessionStore.getSessionById(id);
++    if (!target || target.workspaceId !== this.workspace.id) {
++      throw new Error(`Session "${id}" was not found in this workspace.`);
++    }
++    this.endCurrentSessionHook();
++    this.sessionStore.touchSession(target.id, this.bash.getCwd());
++    this.session = this.sessionStore.getRequiredSession(target.id);
++    this.modelId = this.session.model;
++    this.mode = this.session.mode;
++    const transcript = loadTranscriptState(this.session.id);
++    this.messages = transcript.messages;
++    this.messageSeqs = transcript.seqs;
++    this.planContext = null;
++    return this.getSessionSnapshot()!;
++  }
++
++  forkSession(): SessionSnapshot {
++    if (!this.sessionStore || !this.workspace || !this.session) {
++      throw new Error("Session persistence is disabled.");
++    }
++    const source = this.session;
++    const sourceMessages = [...this.messages];
++    this.endCurrentSessionHook();
++    this.session = this.sessionStore.createSession(this.modelId, this.mode, this.bash.getCwd());
++    if (source.title) this.sessionStore.setTitle(this.session.id, `${source.title} (fork)`);
++    this.messageSeqs = sourceMessages.length > 0 ? appendMessages(this.session.id, sourceMessages) : [];
++    this.messages = sourceMessages;
++    this.session = this.sessionStore.getRequiredSession(this.session.id);
++    this.planContext = null;
++    return this.getSessionSnapshot()!;
++  }
++
++  private endCurrentSessionHook(): void {
++    if (!this.sessionStartHookFired) return;
++    const endInput: SessionEndHookInput = {
++      hook_event_name: "SessionEnd",
++      session_id: this.session?.id,
++      cwd: this.bash.getCwd(),
++    };
++    this.fireHook(endInput).catch(() => {});
++    this.sessionStartHookFired = false;
++  }
++
+   onSubagentStatus(listener: (status: SubagentStatus | null) => void): () => void {
+     this.subagentStatusListeners.add(listener);
+     return () => {
+diff --git a/src/agent/session-control.test.ts b/src/agent/session-control.test.ts
+new file mode 100644
+index 0000000..6fa58b7
+--- /dev/null
++++ b/src/agent/session-control.test.ts
+@@ -0,0 +1,41 @@
++import fs from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { closeDatabase } from "../storage/db";
++import { Agent } from "./agent";
++
++const originalHome = process.env.HOME;
++
++describe("Agent session control", () => {
++  let tempHome = "";
++
++  beforeEach(() => {
++    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "grok-agent-session-"));
++    process.env.HOME = tempHome;
++    vi.spyOn(os, "homedir").mockReturnValue(tempHome);
++    closeDatabase();
++  });
++
++  afterEach(() => {
++    closeDatabase();
++    vi.restoreAllMocks();
++    process.env.HOME = originalHome;
++    fs.rmSync(tempHome, { recursive: true, force: true });
++  });
++
++  it("forks the current session and can switch back within the workspace", async () => {
++    const agent = new Agent(undefined);
++    const originalId = agent.getSessionId();
++    expect(originalId).toBeTruthy();
++
++    const fork = agent.forkSession();
++    expect(fork.session.id).not.toBe(originalId);
++    expect(agent.listRecentSessions(6).map((session) => session.id)).toContain(originalId);
++
++    const switched = agent.switchSession(originalId!);
++    expect(switched.session.id).toBe(originalId);
++    expect(agent.getSessionId()).toBe(originalId);
++    await agent.cleanup();
++  });
++});
+diff --git a/src/control/response-input.test.ts b/src/control/response-input.test.ts
+new file mode 100644
+index 0000000..b92f44e
+--- /dev/null
++++ b/src/control/response-input.test.ts
+@@ -0,0 +1,24 @@
++import { describe, expect, it } from "vitest";
++import { ResponseInputTracker } from "./response-input";
++
++describe("ResponseInputTracker", () => {
++  it("emits one request and one resolution per plan-panel transition", () => {
++    const tracker = new ResponseInputTracker();
++
++    expect(tracker.transition(false, "one")).toEqual([]);
++    expect(tracker.transition(true, "one")).toEqual([{ type: "input.requested", sessionId: "one", kind: "response" }]);
++    expect(tracker.transition(true, "one")).toEqual([]);
++    expect(tracker.transition(false, "one")).toEqual([{ type: "input.resolved", sessionId: "one", kind: "response" }]);
++    expect(tracker.transition(false, "one")).toEqual([]);
++  });
++
++  it("resolves the owning session before requesting input for a replacement", () => {
++    const tracker = new ResponseInputTracker();
++    tracker.transition(true, "one");
++
++    expect(tracker.transition(true, "two")).toEqual([
++      { type: "input.resolved", sessionId: "one", kind: "response" },
++      { type: "input.requested", sessionId: "two", kind: "response" },
++    ]);
++  });
++});
+diff --git a/src/control/response-input.ts b/src/control/response-input.ts
+new file mode 100644
+index 0000000..68eec85
+--- /dev/null
++++ b/src/control/response-input.ts
+@@ -0,0 +1,22 @@
++import type { ControlEvent } from "./types";
++
++/** Tracks the plan-question panel without emitting duplicate render events. */
++export class ResponseInputTracker {
++  private activeSessionId: string | null = null;
++
++  transition(open: boolean, currentSessionId: string | null): ControlEvent[] {
++    const events: ControlEvent[] = [];
++
++    if (this.activeSessionId && (!open || currentSessionId !== this.activeSessionId)) {
++      events.push({ type: "input.resolved", sessionId: this.activeSessionId, kind: "response" });
++      this.activeSessionId = null;
++    }
++
++    if (open && currentSessionId && this.activeSessionId !== currentSessionId) {
++      this.activeSessionId = currentSessionId;
++      events.push({ type: "input.requested", sessionId: currentSessionId, kind: "response" });
++    }
++
++    return events;
++  }
++}
+diff --git a/src/control/server.test.ts b/src/control/server.test.ts
+new file mode 100644
+index 0000000..552c76f
+--- /dev/null
++++ b/src/control/server.test.ts
+@@ -0,0 +1,141 @@
++import fs from "node:fs";
++import net from "node:net";
++import os from "node:os";
++import path from "node:path";
++import { afterEach, describe, expect, it } from "vitest";
++import { LocalControlServer } from "./server";
++import { ControlActionError } from "./types";
++
++class JsonLineReader {
++  private buffer = "";
++  private readonly values: unknown[] = [];
++  private readonly waiters: Array<(value: unknown) => void> = [];
++
++  constructor(socket: net.Socket) {
++    socket.setEncoding("utf8");
++    socket.on("data", (chunk: string) => {
++      this.buffer += chunk;
++      let newline = this.buffer.indexOf("\n");
++      while (newline >= 0) {
++        const line = this.buffer.slice(0, newline);
++        this.buffer = this.buffer.slice(newline + 1);
++        if (line.trim()) this.push(JSON.parse(line));
++        newline = this.buffer.indexOf("\n");
++      }
++    });
++  }
++
++  next(): Promise<unknown> {
++    const value = this.values.shift();
++    if (value !== undefined) return Promise.resolve(value);
++    return new Promise((resolve) => this.waiters.push(resolve));
++  }
++
++  private push(value: unknown): void {
++    const waiter = this.waiters.shift();
++    if (waiter) waiter(value);
++    else this.values.push(value);
++  }
++}
++
++const servers: LocalControlServer[] = [];
++const sockets: net.Socket[] = [];
++const tempDirectories: string[] = [];
++
++afterEach(async () => {
++  for (const socket of sockets.splice(0)) socket.destroy();
++  for (const server of servers.splice(0)) await server.close();
++  for (const directory of tempDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
++});
++
++function createServer() {
++  const tempRoot = process.platform === "darwin" ? "/private/tmp" : os.tmpdir();
++  const root = fs.mkdtempSync(path.join(tempRoot, "grok-ctl-"));
++  tempDirectories.push(root);
++  const server = new LocalControlServer({
++    sessionId: "session-one",
++    cwd: "/tmp/project",
++    pid: 4242,
++    token: "a".repeat(64),
++    socketDirectory: root,
++    registrationDirectory: path.join(root, "registrations"),
++    terminal: { termProgram: null, tmuxPane: null, tty: null },
++  });
++  servers.push(server);
++  return server;
++}
++
++async function connect(server: LocalControlServer): Promise<{ socket: net.Socket; reader: JsonLineReader }> {
++  const socket = net.createConnection(server.socketPath);
++  sockets.push(socket);
++  await new Promise<void>((resolve, reject) => {
++    socket.once("connect", resolve);
++    socket.once("error", reject);
++  });
++  return { socket, reader: new JsonLineReader(socket) };
++}
++
++describe("LocalControlServer", () => {
++  it("publishes a private discovery record and socket", async () => {
++    const server = createServer();
++    const registration = await server.start();
++
++    expect(registration.protocolVersion).toBe(1);
++    expect(registration.sessionId).toBe("session-one");
++    expect(registration.sessions).toEqual([]);
++    expect(registration.terminal).toEqual({ termProgram: null, tmuxPane: null, tty: null });
++    expect(fs.statSync(server.socketPath).mode & 0o777).toBe(0o600);
++    expect(fs.statSync(server.registrationPath).mode & 0o777).toBe(0o600);
++    expect(fs.statSync(path.dirname(server.registrationPath)).mode & 0o777).toBe(0o700);
++    expect(JSON.parse(fs.readFileSync(server.registrationPath, "utf8"))).toEqual(registration);
++  });
++
++  it("authenticates, replays lifecycle events, and dispatches actions in order", async () => {
++    const server = createServer();
++    await server.start();
++    server.emitEvent({ type: "session.opened", sessionId: "session-one", cwd: "/tmp/project", mode: "agent" });
++    server.setActionHandler(async (action) => {
++      if (action.type === "thread.fork") throw new ControlActionError("unsupported", "Thread fork is unavailable.");
++      return { action: action.type };
++    });
++    const { socket, reader } = await connect(server);
++
++    socket.write(`${JSON.stringify({ version: 1, type: "authenticate", token: server.token })}\n`);
++    expect(await reader.next()).toMatchObject({ type: "ready", sessionId: "session-one" });
++    expect(await reader.next()).toMatchObject({ type: "event", seq: 1, event: { type: "session.opened" } });
++
++    socket.write(`${JSON.stringify({ version: 1, type: "action", id: "one", action: { type: "composer.submit" } })}\n`);
++    expect(await reader.next()).toEqual({
++      version: 1,
++      type: "result",
++      id: "one",
++      ok: true,
++      data: { action: "composer.submit" },
++    });
++
++    socket.write(`${JSON.stringify({ version: 1, type: "action", id: "two", action: { type: "thread.fork" } })}\n`);
++    expect(await reader.next()).toMatchObject({
++      type: "result",
++      id: "two",
++      ok: false,
++      error: { code: "unsupported" },
++    });
++  });
++
++  it("rejects unauthenticated clients and updates session discovery", async () => {
++    const server = createServer();
++    await server.start();
++    const { socket, reader } = await connect(server);
++
++    socket.write(`${JSON.stringify({ version: 1, type: "authenticate", token: "wrong" })}\n`);
++    expect(await reader.next()).toMatchObject({ type: "protocol_error", error: { code: "unauthorized" } });
++
++    server.updateSession("session-two", "/tmp/other");
++    server.updateSessions([{ id: "session-two", title: "Other", mode: "plan", updatedAt: "2026-08-04T00:00:00.000Z" }]);
++    expect(JSON.parse(fs.readFileSync(server.registrationPath, "utf8"))).toMatchObject({
++      sessionId: "session-two",
++      cwd: "/tmp/other",
++      sessions: [{ id: "session-two", title: "Other", mode: "plan" }],
++    });
++  });
++});
+diff --git a/src/control/server.ts b/src/control/server.ts
+new file mode 100644
+index 0000000..4436adc
+--- /dev/null
++++ b/src/control/server.ts
+@@ -0,0 +1,314 @@
++import { randomBytes, timingSafeEqual } from "node:crypto";
++import fs from "node:fs";
++import net from "node:net";
++import os from "node:os";
++import path from "node:path";
++import {
++  CONTROL_PROTOCOL_VERSION,
++  type ControlAction,
++  ControlActionError,
++  type ControlActionHandler,
++  type ControlErrorCode,
++  type ControlEvent,
++  type ControlRegistration,
++  type ControlSessionSummary,
++  type ControlTerminalMetadata,
++  type ServerMessage,
++} from "./types";
++
++interface LocalControlServerOptions {
++  sessionId: string;
++  cwd: string;
++  pid?: number;
++  token?: string;
++  socketDirectory?: string;
++  registrationDirectory?: string;
++  maxMessageBytes?: number;
++  replayLimit?: number;
++  sessions?: ControlSessionSummary[];
++  terminal?: Partial<ControlTerminalMetadata>;
++}
++
++interface ClientState {
++  authenticated: boolean;
++  buffer: string;
++  queue: Promise<void>;
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === "object" && value !== null && !Array.isArray(value);
++}
++
++function constantTimeTokenMatch(received: string, expected: string): boolean {
++  const left = Buffer.from(received);
++  const right = Buffer.from(expected);
++  return left.length === right.length && timingSafeEqual(left, right);
++}
++
++export class LocalControlServer {
++  readonly token: string;
++  readonly pid: number;
++  readonly socketPath: string;
++  readonly registrationPath: string;
++
++  private sessionId: string;
++  private cwd: string;
++  private sessions: ControlSessionSummary[];
++  private readonly terminal: ControlTerminalMetadata;
++  private readonly maxMessageBytes: number;
++  private readonly replayLimit: number;
++  private readonly server: net.Server;
++  private readonly clients = new Map<net.Socket, ClientState>();
++  private readonly replay: ServerMessage[] = [];
++  private actionHandler: ControlActionHandler | null = null;
++  private sequence = 0;
++  private started = false;
++  private closed = false;
++  private readonly createdAt = new Date().toISOString();
++
++  constructor(options: LocalControlServerOptions) {
++    this.sessionId = options.sessionId;
++    this.cwd = options.cwd;
++    this.pid = options.pid ?? process.pid;
++    this.token = options.token ?? randomBytes(32).toString("hex");
++    this.maxMessageBytes = options.maxMessageBytes ?? 64 * 1024;
++    this.replayLimit = options.replayLimit ?? 128;
++    this.sessions = options.sessions ? [...options.sessions] : [];
++    this.terminal = {
++      termProgram:
++        options.terminal?.termProgram === undefined ? (process.env.TERM_PROGRAM ?? null) : options.terminal.termProgram,
++      tmuxPane: options.terminal?.tmuxPane === undefined ? (process.env.TMUX_PANE ?? null) : options.terminal.tmuxPane,
++      tty: options.terminal?.tty === undefined ? (process.env.TTY ?? null) : options.terminal.tty,
++    };
++
++    const id = randomBytes(6).toString("hex");
++    const socketDirectory = options.socketDirectory ?? (process.platform === "darwin" ? "/private/tmp" : os.tmpdir());
++    const registrationDirectory = options.registrationDirectory ?? path.join(os.homedir(), ".grok", "control");
++    this.socketPath = path.join(socketDirectory, `grok-control-${this.pid}-${id}.sock`);
++    this.registrationPath = path.join(registrationDirectory, `${this.pid}.json`);
++    this.server = net.createServer((socket) => this.accept(socket));
++  }
++
++  async start(): Promise<ControlRegistration> {
++    if (this.started) return this.registration();
++    if (this.closed) throw new Error("Control server is closed.");
++
++    fs.mkdirSync(path.dirname(this.registrationPath), { recursive: true, mode: 0o700 });
++    fs.chmodSync(path.dirname(this.registrationPath), 0o700);
++    await new Promise<void>((resolve, reject) => {
++      const onError = (error: Error) => {
++        this.server.off("listening", onListening);
++        reject(error);
++      };
++      const onListening = () => {
++        this.server.off("error", onError);
++        resolve();
++      };
++      this.server.once("error", onError);
++      this.server.once("listening", onListening);
++      this.server.listen(this.socketPath);
++    });
++    fs.chmodSync(this.socketPath, 0o600);
++    this.started = true;
++    this.writeRegistration();
++    return this.registration();
++  }
++
++  setActionHandler(handler: ControlActionHandler): () => void {
++    this.actionHandler = handler;
++    return () => {
++      if (this.actionHandler === handler) this.actionHandler = null;
++    };
++  }
++
++  emitEvent(event: ControlEvent): void {
++    const message: ServerMessage = {
++      version: CONTROL_PROTOCOL_VERSION,
++      type: "event",
++      seq: ++this.sequence,
++      event,
++    };
++    this.replay.push(message);
++    if (this.replay.length > this.replayLimit) this.replay.shift();
++    for (const [socket, state] of this.clients) {
++      if (state.authenticated) this.send(socket, message);
++    }
++  }
++
++  updateSession(sessionId: string, cwd: string): void {
++    this.sessionId = sessionId;
++    this.cwd = cwd;
++    if (this.started && !this.closed) this.writeRegistration();
++  }
++
++  updateSessions(sessions: ControlSessionSummary[]): void {
++    this.sessions = sessions.slice(0, 100).map((session) => ({ ...session }));
++    if (this.started && !this.closed) this.writeRegistration();
++  }
++
++  async close(): Promise<void> {
++    if (this.closed) return;
++    this.closed = true;
++    for (const socket of this.clients.keys()) socket.destroy();
++    this.clients.clear();
++    if (this.started) {
++      await new Promise<void>((resolve) => this.server.close(() => resolve()));
++    }
++    this.removeOwnedFile(this.registrationPath);
++    this.removeOwnedFile(this.socketPath);
++  }
++
++  private registration(): ControlRegistration {
++    return {
++      protocolVersion: CONTROL_PROTOCOL_VERSION,
++      pid: this.pid,
++      sessionId: this.sessionId,
++      cwd: this.cwd,
++      socketPath: this.socketPath,
++      token: this.token,
++      createdAt: this.createdAt,
++      sessions: this.sessions.map((session) => ({ ...session })),
++      terminal: { ...this.terminal },
++    };
++  }
++
++  private writeRegistration(): void {
++    const target = this.registrationPath;
++    const temporary = `${target}.${randomBytes(4).toString("hex")}.tmp`;
++    try {
++      fs.writeFileSync(temporary, `${JSON.stringify(this.registration(), null, 2)}\n`, { flag: "wx", mode: 0o600 });
++      fs.renameSync(temporary, target);
++      fs.chmodSync(target, 0o600);
++    } finally {
++      fs.rmSync(temporary, { force: true });
++    }
++  }
++
++  private removeOwnedFile(target: string): void {
++    try {
++      fs.rmSync(target, { force: true });
++    } catch {
++      // Cleanup is best effort and never blocks Grok shutdown.
++    }
++  }
++
++  private accept(socket: net.Socket): void {
++    socket.setEncoding("utf8");
++    socket.setTimeout(30_000, () => socket.destroy());
++    const state: ClientState = { authenticated: false, buffer: "", queue: Promise.resolve() };
++    this.clients.set(socket, state);
++    socket.on("error", () => {});
++    socket.on("close", () => this.clients.delete(socket));
++    socket.on("data", (chunk: string) => {
++      state.buffer += chunk;
++      let newline = state.buffer.indexOf("\n");
++      while (newline >= 0) {
++        const line = state.buffer.slice(0, newline).trim();
++        state.buffer = state.buffer.slice(newline + 1);
++        if (Buffer.byteLength(line) > this.maxMessageBytes) {
++          this.protocolError(socket, "invalid_request", "Control message exceeds the size limit.");
++          socket.destroy();
++          return;
++        }
++        if (line) {
++          state.queue = state.queue.then(() => this.processLine(socket, state, line)).catch(() => {});
++        }
++        newline = state.buffer.indexOf("\n");
++      }
++      if (Buffer.byteLength(state.buffer) > this.maxMessageBytes) {
++        this.protocolError(socket, "invalid_request", "Control message exceeds the size limit.");
++        socket.destroy();
++      }
++    });
++  }
++
++  private async processLine(socket: net.Socket, state: ClientState, line: string): Promise<void> {
++    let value: unknown;
++    try {
++      value = JSON.parse(line);
++    } catch {
++      this.protocolError(socket, "invalid_request", "Control message is not valid JSON.");
++      return;
++    }
++    if (!isRecord(value)) {
++      this.protocolError(socket, "invalid_request", "Control message must be an object.");
++      return;
++    }
++    if (value.version !== CONTROL_PROTOCOL_VERSION) {
++      this.protocolError(
++        socket,
++        "unsupported_version",
++        `Expected control protocol version ${CONTROL_PROTOCOL_VERSION}.`,
++      );
++      return;
++    }
++
++    if (!state.authenticated) {
++      if (value.type !== "authenticate" || typeof value.token !== "string") {
++        this.protocolError(socket, "unauthorized", "Authenticate before sending control messages.");
++        socket.destroy();
++        return;
++      }
++      if (!constantTimeTokenMatch(value.token, this.token)) {
++        this.protocolError(socket, "unauthorized", "Invalid control token.");
++        socket.destroy();
++        return;
++      }
++      state.authenticated = true;
++      socket.setTimeout(0);
++      this.send(socket, {
++        version: CONTROL_PROTOCOL_VERSION,
++        type: "ready",
++        pid: this.pid,
++        sessionId: this.sessionId,
++        cwd: this.cwd,
++      });
++      for (const message of this.replay) this.send(socket, message);
++      return;
++    }
++
++    if (
++      value.type !== "action" ||
++      typeof value.id !== "string" ||
++      !isRecord(value.action) ||
++      typeof value.action.type !== "string"
++    ) {
++      this.protocolError(socket, "invalid_request", "Expected an action with string id and action.type.");
++      return;
++    }
++
++    const id = value.id;
++    if (!this.actionHandler) {
++      this.actionError(socket, id, "unavailable", "The interactive UI is not ready for control actions.");
++      return;
++    }
++    try {
++      const data = await this.actionHandler(value.action as ControlAction);
++      this.send(socket, {
++        version: CONTROL_PROTOCOL_VERSION,
++        type: "result",
++        id,
++        ok: true,
++        ...(data === undefined ? {} : { data }),
++      });
++    } catch (error) {
++      if (error instanceof ControlActionError) {
++        this.actionError(socket, id, error.code, error.message);
++      } else {
++        this.actionError(socket, id, "internal_error", "The control action failed.");
++      }
++    }
++  }
++
++  private actionError(socket: net.Socket, id: string, code: ControlErrorCode, message: string): void {
++    this.send(socket, { version: CONTROL_PROTOCOL_VERSION, type: "result", id, ok: false, error: { code, message } });
++  }
++
++  private protocolError(socket: net.Socket, code: ControlErrorCode, message: string): void {
++    this.send(socket, { version: CONTROL_PROTOCOL_VERSION, type: "protocol_error", error: { code, message } });
++  }
++
++  private send(socket: net.Socket, message: ServerMessage): void {
++    if (!socket.destroyed) socket.write(`${JSON.stringify(message)}\n`);
++  }
++}
+diff --git a/src/control/types.ts b/src/control/types.ts
+new file mode 100644
+index 0000000..045948f
+--- /dev/null
++++ b/src/control/types.ts
+@@ -0,0 +1,126 @@
++export const CONTROL_PROTOCOL_VERSION = 1 as const;
++
++export type ControlErrorCode =
++  | "invalid_request"
++  | "unauthorized"
++  | "unsupported_version"
++  | "unsupported"
++  | "unavailable"
++  | "not_pending"
++  | "not_active"
++  | "busy"
++  | "internal_error";
++
++export class ControlActionError extends Error {
++  constructor(
++    readonly code: ControlErrorCode,
++    message: string,
++  ) {
++    super(message);
++    this.name = "ControlActionError";
++  }
++}
++
++export type SupportedControlAction =
++  | { type: "composer.submit" }
++  | { type: "turn.interrupt" }
++  | { type: "mode.cycle" }
++  | { type: "composer.togglePlanMode" }
++  | { type: "approval.respond"; decision: "approve" | "decline" }
++  | { type: "session.new" }
++  | { type: "thread.select"; sessionId: string }
++  | { type: "thread.fork" }
++  | { type: "reasoning.adjust"; direction: "increase" | "decrease" }
++  | { type: "conversation.scroll"; direction: "up" | "down" | "bottom" };
++
++/** Native Micro concepts that Grok does not currently implement exactly. */
++export type UnsupportedNativeControlAction =
++  | { type: "composer.toggleFastMode" }
++  | { type: "navigate"; direction?: "back" | "forward" }
++  | { type: "sidebar.toggle" }
++  | { type: "settings.open"; section?: string };
++
++export type ControlAction = SupportedControlAction | UnsupportedNativeControlAction;
++
++export interface ControlSessionSummary {
++  id: string;
++  title: string | null;
++  mode: string;
++  updatedAt: string;
++}
++
++export interface ControlTerminalMetadata {
++  termProgram: string | null;
++  tmuxPane: string | null;
++  tty: string | null;
++}
++
++export type ControlEvent =
++  | { type: "session.opened"; sessionId: string; cwd: string; mode: string }
++  | { type: "session.closed"; sessionId: string; reason: string }
++  | { type: "session.changed"; previousSessionId: string; sessionId: string; cwd: string }
++  | {
++      type: "session.catalog";
++      sessionId: string;
++      sessions: ControlSessionSummary[];
++    }
++  | { type: "mode.changed"; sessionId: string; mode: string }
++  | { type: "turn.started"; sessionId: string }
++  | { type: "turn.completed"; sessionId: string; outcome: "completed" | "interrupted" | "failed" }
++  | { type: "tool.started"; sessionId: string; toolName: string; toolCallId: string }
++  | { type: "tool.finished"; sessionId: string; toolName: string; toolCallId: string; success: boolean }
++  | { type: "input.requested"; sessionId: string; kind: "approval" | "response" }
++  | { type: "input.resolved"; sessionId: string; kind: "approval"; decision: "approve" | "decline" }
++  | { type: "input.resolved"; sessionId: string; kind: "response" };
++
++export interface AuthenticateMessage {
++  version: typeof CONTROL_PROTOCOL_VERSION;
++  type: "authenticate";
++  token: string;
++}
++
++export interface ActionMessage {
++  version: typeof CONTROL_PROTOCOL_VERSION;
++  type: "action";
++  id: string;
++  action: ControlAction;
++}
++
++export type ClientMessage = AuthenticateMessage | ActionMessage;
++
++export interface ControlRegistration {
++  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
++  pid: number;
++  sessionId: string;
++  cwd: string;
++  socketPath: string;
++  token: string;
++  createdAt: string;
++  sessions: ControlSessionSummary[];
++  terminal: ControlTerminalMetadata;
++}
++
++export type ServerMessage =
++  | {
++      version: typeof CONTROL_PROTOCOL_VERSION;
++      type: "ready";
++      pid: number;
++      sessionId: string;
++      cwd: string;
++    }
++  | { version: typeof CONTROL_PROTOCOL_VERSION; type: "event"; seq: number; event: ControlEvent }
++  | { version: typeof CONTROL_PROTOCOL_VERSION; type: "result"; id: string; ok: true; data?: unknown }
++  | {
++      version: typeof CONTROL_PROTOCOL_VERSION;
++      type: "result";
++      id: string;
++      ok: false;
++      error: { code: ControlErrorCode; message: string };
++    }
++  | {
++      version: typeof CONTROL_PROTOCOL_VERSION;
++      type: "protocol_error";
++      error: { code: ControlErrorCode; message: string };
++    };
++
++export type ControlActionHandler = (action: ControlAction) => unknown | Promise<unknown>;
+diff --git a/src/control/ui-actions.test.ts b/src/control/ui-actions.test.ts
+new file mode 100644
+index 0000000..d162835
+--- /dev/null
++++ b/src/control/ui-actions.test.ts
+@@ -0,0 +1,30 @@
++import { describe, expect, it, vi } from "vitest";
++import { applyConversationScroll, reasoningDirectionDelta } from "./ui-actions";
++
++describe("control UI action mappings", () => {
++  it("maps reasoning directions to the existing effort adjustment delta", () => {
++    expect(reasoningDirectionDelta("increase")).toBe(1);
++    expect(reasoningDirectionDelta("decrease")).toBe(-1);
++  });
++
++  it("scrolls the conversation by the existing 160-unit increments", () => {
++    const target = { scrollBy: vi.fn() };
++    const bottom = vi.fn();
++
++    expect(applyConversationScroll(target, "up", bottom)).toBe(true);
++    expect(applyConversationScroll(target, "down", bottom)).toBe(true);
++    expect(target.scrollBy).toHaveBeenNthCalledWith(1, -160);
++    expect(target.scrollBy).toHaveBeenNthCalledWith(2, 160);
++    expect(bottom).not.toHaveBeenCalled();
++  });
++
++  it("uses the existing bottom action and fails closed without a conversation", () => {
++    const target = { scrollBy: vi.fn() };
++    const bottom = vi.fn();
++
++    expect(applyConversationScroll(target, "bottom", bottom)).toBe(true);
++    expect(bottom).toHaveBeenCalledOnce();
++    expect(target.scrollBy).not.toHaveBeenCalled();
++    expect(applyConversationScroll(null, "up", bottom)).toBe(false);
++  });
++});
+diff --git a/src/control/ui-actions.ts b/src/control/ui-actions.ts
+new file mode 100644
+index 0000000..b6fe422
+--- /dev/null
++++ b/src/control/ui-actions.ts
+@@ -0,0 +1,20 @@
++export type ConversationScrollDirection = "up" | "down" | "bottom";
++
++export interface ConversationScrollTarget {
++  scrollBy(delta: number): void;
++}
++
++export function reasoningDirectionDelta(direction: "increase" | "decrease"): -1 | 1 {
++  return direction === "increase" ? 1 : -1;
++}
++
++export function applyConversationScroll(
++  target: ConversationScrollTarget | null,
++  direction: ConversationScrollDirection,
++  scrollToBottom: () => void,
++): boolean {
++  if (!target) return false;
++  if (direction === "bottom") scrollToBottom();
++  else target.scrollBy(direction === "up" ? -160 : 160);
++  return true;
++}
+diff --git a/src/index.ts b/src/index.ts
+index d49af03..2dece3e 100755
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -5,6 +5,7 @@ import readline from "readline";
+ import packageJson from "../package.json";
+ import { Agent } from "./agent/agent";
+ import { completeDelegation, failDelegation, loadDelegation } from "./agent/delegations";
++import { LocalControlServer } from "./control/server";
+ import { MODELS, normalizeModelId } from "./grok/models";
+ import {
+   createHeadlessJsonlEmitter,
+@@ -82,12 +83,40 @@ async function startInteractive(
+     },
+   });
+ 
+-  const onExit = () => {
+-    void agent.cleanup().finally(() => {
++  let controlServer: LocalControlServer | undefined;
++  if (process.env.GROK_CONTROL_DISABLE !== "1" && agent.getSessionId()) {
++    try {
++      controlServer = new LocalControlServer({ sessionId: agent.getSessionId()!, cwd: agent.getCwd() });
++      await controlServer.start();
++      controlServer.emitEvent({
++        type: "session.opened",
++        sessionId: agent.getSessionId()!,
++        cwd: agent.getCwd(),
++        mode: agent.getMode(),
++      });
++    } catch (error) {
++      controlServer = undefined;
++      const message = error instanceof Error ? error.message : String(error);
++      process.stderr.write(`Grok local control unavailable: ${message}\n`);
++    }
++  }
++
++  let shuttingDown = false;
++  const shutdown = (reason: string) => {
++    if (shuttingDown) return;
++    shuttingDown = true;
++    const currentSessionId = agent.getSessionId();
++    if (controlServer && currentSessionId) {
++      controlServer.emitEvent({ type: "session.closed", sessionId: currentSessionId, reason });
++    }
++    void Promise.allSettled([agent.cleanup(), controlServer?.close()]).finally(() => {
+       renderer.destroy();
+       process.exit(0);
+     });
+   };
++  const onInteractiveSigterm = () => shutdown("sigterm");
++  process.off("SIGTERM", exitCleanlyOnSigterm);
++  process.on("SIGTERM", onInteractiveSigterm);
+ 
+   createRoot(renderer).render(
+     createElement(App, {
+@@ -102,7 +131,8 @@ async function startInteractive(
+         version: packageJson.version,
+       },
+       initialMessage,
+-      onExit,
++      controlServer,
++      onExit: () => shutdown("user"),
+     }),
+   );
+ }
+diff --git a/src/storage/sessions.test.ts b/src/storage/sessions.test.ts
+index 5345c3f..de29a9f 100644
+--- a/src/storage/sessions.test.ts
++++ b/src/storage/sessions.test.ts
+@@ -22,6 +22,7 @@ describe("SessionStore recap persistence", () => {
+   });
+ 
+   afterEach(() => {
++    vi.useRealTimers();
+     closeDatabase();
+     vi.restoreAllMocks();
+     process.env.HOME = originalHome;
+@@ -61,4 +62,20 @@ describe("SessionStore recap persistence", () => {
+ 
+     expect(store.getRequiredSession(session.id).recap).toBeNull();
+   });
++
++  it("lists only recent active sessions for the current workspace", () => {
++    vi.useFakeTimers();
++    vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"));
++    const store = new SessionStore(tempCwd);
++    const first = store.createSession("grok-4.3", "agent", tempCwd);
++    vi.setSystemTime(new Date("2026-08-04T12:00:01.000Z"));
++    const second = store.createSession("grok-4.3", "plan", tempCwd);
++    store.setTitle(second.id, "Most recent");
++
++    const sessions = store.listRecentSessions(1);
++
++    expect(sessions).toHaveLength(1);
++    expect(sessions[0]).toMatchObject({ id: second.id, title: "Most recent", mode: "plan" });
++    expect(sessions[0]?.id).not.toBe(first.id);
++  });
+ });
+diff --git a/src/storage/sessions.ts b/src/storage/sessions.ts
+index f138f29..3ab4dfd 100644
+--- a/src/storage/sessions.ts
++++ b/src/storage/sessions.ts
+@@ -88,6 +88,21 @@ export class SessionStore {
+     return row ? toSessionInfo(row) : null;
+   }
+ 
++  listRecentSessions(limit = 6): SessionInfo[] {
++    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 6;
++    const rows = getDatabase()
++      .prepare(`
++      SELECT id, workspace_id, title, recap_text, recap_model, recap_updated_at, model, mode, cwd_at_start, cwd_last, status, created_at, updated_at
++      FROM sessions
++      WHERE workspace_id = ? AND status = 'active'
++      ORDER BY updated_at DESC
++      LIMIT ?
++    `)
++      .all(this.workspace.id, safeLimit) as SessionRow[];
++
++    return rows.map(toSessionInfo);
++  }
++
+   getSessionById(id: string): SessionInfo | null {
+     const row = getDatabase()
+       .prepare(`
+diff --git a/src/ui/app.tsx b/src/ui/app.tsx
+index 6c2eab4..2598f1c 100644
+--- a/src/ui/app.tsx
++++ b/src/ui/app.tsx
+@@ -4,6 +4,10 @@ import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
+ import os from "os";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { Agent } from "../agent/agent";
++import { ResponseInputTracker } from "../control/response-input";
++import type { LocalControlServer } from "../control/server";
++import { type ControlAction, ControlActionError } from "../control/types";
++import { applyConversationScroll, reasoningDirectionDelta } from "../control/ui-actions";
+ import {
+   DEFAULT_MODEL,
+   getEffectiveReasoningEffort,
+@@ -28,6 +32,7 @@ import type {
+   Plan,
+   PlanQuestion,
+   ReasoningEffort,
++  SessionSnapshot,
+   SubagentStatus,
+   ToolCall,
+   ToolResult,
+@@ -580,6 +585,7 @@ interface AppProps {
+   agent: Agent;
+   startupConfig: AppStartupConfig;
+   initialMessage?: string;
++  controlServer?: LocalControlServer;
+   onExit?: () => void;
+ }
+ 
+@@ -594,7 +600,7 @@ interface ActiveTurnState {
+   flushedAssistantChars: number;
+ }
+ 
+-export function App({ agent, startupConfig, initialMessage, onExit }: AppProps) {
++export function App({ agent, startupConfig, initialMessage, controlServer, onExit }: AppProps) {
+   const t = dark;
+   const renderer = useRenderer();
+   const initialHasApiKey = agent.hasApiKey();
+@@ -684,6 +690,7 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+   const interruptedRunIdRef = useRef<number | null>(null);
+   const activeTurnRef = useRef<ActiveTurnState | null>(null);
+   const coordinatorRef = useRef(createTurnCoordinator());
++  const responseInputTrackerRef = useRef(new ResponseInputTracker());
+   const bridgeRef = useRef<TelegramBridgeHandle | null>(null);
+   const telegramAgentsRef = useRef<Map<number, Agent>>(new Map());
+   const telegramEntryCountsRef = useRef<Map<number, number>>(new Map());
+@@ -795,8 +802,10 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+       agent.setMode(m);
+       setModeState(m);
+       setModel(agent.getModel());
++      const currentSessionId = agent.getSessionId();
++      if (currentSessionId) controlServer?.emitEvent({ type: "mode.changed", sessionId: currentSessionId, mode: m });
+     },
+-    [agent, mode, activePlan],
++    [agent, mode, activePlan, controlServer],
+   );
+   const cycleMode = useCallback(() => {
+     const idx = MODES.findIndex((m) => m.id === mode);
+@@ -2027,21 +2036,106 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+     };
+   }, [interruptActiveRun, renderer]);
+ 
++  const publishSessionCatalog = useCallback(() => {
++    const currentSessionId = agent.getSessionId();
++    if (!currentSessionId) return;
++    const sessions = agent.listRecentSessions(6).map((session) => ({
++      id: session.id,
++      title: session.title,
++      mode: session.mode,
++      updatedAt: session.updatedAt.toISOString(),
++    }));
++    controlServer?.updateSessions(sessions);
++    controlServer?.emitEvent({
++      type: "session.catalog",
++      sessionId: currentSessionId,
++      sessions,
++    });
++  }, [agent, controlServer]);
++
++  const applySessionSnapshot = useCallback(
++    (snapshot: SessionSnapshot) => {
++      setMessages(snapshot.entries);
++      setExpandedMessages(new Set());
++      activeTurnRef.current = null;
++      clearLiveTurnUi();
++      setSessionTitle(snapshot.session.title);
++      setSessionId(snapshot.session.id);
++      setSessionRecap(agent.getSessionRecap());
++      setModeState(snapshot.session.mode);
++      setModel(snapshot.session.model);
++      setActivePlan(null);
++      setPqs(initialPlanQuestionsState());
++      replacePasteBlocks([]);
++      queuedMessagesRef.current = [];
++      setQueuedMessages([]);
++    },
++    [agent, clearLiveTurnUi, replacePasteBlocks],
++  );
++
++  const announceSessionChange = useCallback(
++    (previousSessionId: string, snapshot: SessionSnapshot) => {
++      controlServer?.updateSession(snapshot.session.id, agent.getCwd());
++      controlServer?.emitEvent({
++        type: "session.changed",
++        previousSessionId,
++        sessionId: snapshot.session.id,
++        cwd: agent.getCwd(),
++      });
++      controlServer?.emitEvent({
++        type: "session.opened",
++        sessionId: snapshot.session.id,
++        cwd: agent.getCwd(),
++        mode: snapshot.session.mode,
++      });
++      publishSessionCatalog();
++    },
++    [agent, controlServer, publishSessionCatalog],
++  );
++
+   const resetToNewSession = useCallback(() => {
++    const previousSessionId = agent.getSessionId();
+     const snapshot = agent.startNewSession();
+-    setMessages(snapshot?.entries ?? []);
+-    setExpandedMessages(new Set());
+-    activeTurnRef.current = null;
+-    clearLiveTurnUi();
+-    setSessionTitle(snapshot?.session.title ?? null);
+-    setSessionId(snapshot?.session.id ?? agent.getSessionId());
+-    setSessionRecap(agent.getSessionRecap());
+-    setActivePlan(null);
+-    setPqs(initialPlanQuestionsState());
+-    replacePasteBlocks([]);
+-    queuedMessagesRef.current = [];
+-    setQueuedMessages([]);
+-  }, [agent, clearLiveTurnUi, replacePasteBlocks]);
++    if (snapshot) applySessionSnapshot(snapshot);
++    if (controlServer && previousSessionId && snapshot) {
++      announceSessionChange(previousSessionId, snapshot);
++    }
++  }, [agent, announceSessionChange, applySessionSnapshot, controlServer]);
++
++  const selectSession = useCallback(
++    (targetSessionId: string): SessionSnapshot => {
++      const previousSessionId = agent.getSessionId();
++      if (!previousSessionId) throw new ControlActionError("unavailable", "No persisted session is active.");
++      let snapshot: SessionSnapshot;
++      try {
++        snapshot = agent.switchSession(targetSessionId);
++      } catch (error) {
++        throw new ControlActionError("unavailable", error instanceof Error ? error.message : String(error));
++      }
++      applySessionSnapshot(snapshot);
++      announceSessionChange(previousSessionId, snapshot);
++      return snapshot;
++    },
++    [agent, announceSessionChange, applySessionSnapshot],
++  );
++
++  const forkSession = useCallback((): SessionSnapshot => {
++    const previousSessionId = agent.getSessionId();
++    if (!previousSessionId) throw new ControlActionError("unavailable", "No persisted session is active.");
++    let snapshot: SessionSnapshot;
++    try {
++      snapshot = agent.forkSession();
++    } catch (error) {
++      throw new ControlActionError("unavailable", error instanceof Error ? error.message : String(error));
++    }
++    applySessionSnapshot(snapshot);
++    announceSessionChange(previousSessionId, snapshot);
++    return snapshot;
++  }, [agent, announceSessionChange, applySessionSnapshot]);
++
++  useEffect(() => {
++    publishSessionCatalog();
++  }, [publishSessionCatalog]);
+ 
+   const processMessage = useCallback(
+     async (text: string, displayText?: string) => {
+@@ -2056,6 +2150,8 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+           .then(setSessionTitle)
+           .catch(() => {});
+       await coordinatorRef.current.run(async () => {
++        const controlledSessionId = agent.getSessionId();
++        if (controlledSessionId) controlServer?.emitEvent({ type: "turn.started", sessionId: controlledSessionId });
+         const color = modeInfoRef.current.color;
+         beginLiveTurn({ kind: "local", agent, modeColor: color });
+         setMessages((prev) => [...prev, buildUserEntry((displayText ?? text).trim(), { modeColor: color })]);
+@@ -2079,11 +2175,32 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+               case "tool_calls":
+                 if (chunk.toolCalls) {
+                   showLiveToolCalls(chunk.toolCalls);
++                  const currentSessionId = agent.getSessionId();
++                  if (currentSessionId) {
++                    for (const toolCall of chunk.toolCalls) {
++                      controlServer?.emitEvent({
++                        type: "tool.started",
++                        sessionId: currentSessionId,
++                        toolName: toolCall.function.name,
++                        toolCallId: toolCall.id,
++                      });
++                    }
++                  }
+                 }
+                 break;
+               case "tool_result":
+                 if (chunk.toolCall && chunk.toolResult) {
+                   appendLiveToolResult(chunk.toolCall, chunk.toolResult);
++                  const currentSessionId = agent.getSessionId();
++                  if (currentSessionId) {
++                    controlServer?.emitEvent({
++                      type: "tool.finished",
++                      sessionId: currentSessionId,
++                      toolName: chunk.toolCall.function.name,
++                      toolCallId: chunk.toolCall.id,
++                      success: chunk.toolResult.success,
++                    });
++                  }
+                 }
+                 break;
+               case "tool_approval_request":
+@@ -2107,6 +2224,14 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+                     approvalId: chunk.approvalId,
+                     selected: 0,
+                   });
++                  const currentSessionId = agent.getSessionId();
++                  if (currentSessionId) {
++                    controlServer?.emitEvent({
++                      type: "input.requested",
++                      sessionId: currentSessionId,
++                      kind: "approval",
++                    });
++                  }
+                 }
+                 break;
+               case "error":
+@@ -2141,6 +2266,15 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+         }
+ 
+         if (!isStale()) {
++          const currentSessionId = agent.getSessionId();
++          if (currentSessionId) {
++            controlServer?.emitEvent({
++              type: "turn.completed",
++              sessionId: currentSessionId,
++              outcome: wasInterrupted ? "interrupted" : turnHadError ? "failed" : "completed",
++            });
++            publishSessionCatalog();
++          }
+           finalizeActiveTurn({ wasInterrupted, hadError: turnHadError });
+         }
+         if (wasInterrupted) {
+@@ -2153,7 +2287,9 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+       appendLiveToolResult,
+       applyLocalAssistantDelta,
+       beginLiveTurn,
++      controlServer,
+       finalizeActiveTurn,
++      publishSessionCatalog,
+       scrollToBottom,
+       sessionTitle,
+       showLiveToolCalls,
+@@ -2169,6 +2305,27 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+   useEffect(() => {
+     processMessageRef.current = processMessage;
+   }, [processMessage]);
++
++  const respondToPendingApproval = useCallback(
++    (decision: "approve" | "decline"): boolean => {
++      const approvalId = pendingPaymentApproval?.approvalId;
++      if (!approvalId) return false;
++      setPendingPaymentApproval(null);
++      agent.respondToToolApproval(approvalId, decision === "approve");
++      const currentSessionId = agent.getSessionId();
++      if (currentSessionId) {
++        controlServer?.emitEvent({
++          type: "input.resolved",
++          sessionId: currentSessionId,
++          kind: "approval",
++          decision,
++        });
++      }
++      if (decision === "approve") processMessage("[Payment approved]");
++      return true;
++    },
++    [agent, controlServer, pendingPaymentApproval, processMessage],
++  );
+   useEffect(
+     () =>
+       agent.onSubagentStatus((status) => {
+@@ -2454,6 +2611,12 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+     showUpdateModal;
+ 
+   const showPlanPanel = !!activePlan?.questions?.length;
++
++  useEffect(() => {
++    const events = responseInputTrackerRef.current.transition(showPlanPanel, agent.getSessionId());
++    for (const event of events) controlServer?.emitEvent(event);
++  }, [agent, controlServer, showPlanPanel]);
++
+   const planQuestions = activePlan?.questions ?? [];
+   const isSinglePlan = planQuestions.length === 1 && planQuestions[0]?.type !== "multiselect";
+   const planTabCount = isSinglePlan ? 1 : planQuestions.length + 1;
+@@ -3004,15 +3167,7 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+           return;
+         }
+         if (key.name === "return") {
+-          const approved = pendingPaymentApproval.selected === 0;
+-          const aid = pendingPaymentApproval.approvalId;
+-          setPendingPaymentApproval(null);
+-          if (aid) {
+-            agent.respondToToolApproval(aid, approved);
+-            if (approved) {
+-              processMessage("[Payment approved]");
+-            }
+-          }
++          respondToPendingApproval(pendingPaymentApproval.selected === 0 ? "approve" : "decline");
+           return;
+         }
+         return;
+@@ -3323,7 +3478,7 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+       showRecapPicker,
+       showSandboxPicker,
+       pendingPaymentApproval,
+-      processMessage,
++      respondToPendingApproval,
+       showWalletPicker,
+       walletSettings,
+       walletFocusIndex,
+@@ -3412,6 +3567,144 @@ export function App({ agent, startupConfig, initialMessage, onExit }: AppProps)
+     processMessage(enhancedMessage, displayText);
+   }, [agent, clearLiveTurnUi, handleCommand, openApiKeyModal, processMessage, replacePasteBlocks, scrollToBottom]);
+ 
++  useEffect(() => {
++    if (!controlServer) return;
++
++    const handleControlAction = async (action: ControlAction): Promise<unknown> => {
++      switch (action.type) {
++        case "composer.submit": {
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError(
++              "unavailable",
++              "The composer is not active while a modal or question is open.",
++            );
++          }
++          const submitted = Boolean(inputRef.current?.plainText.trim() || pasteBlocksRef.current.length > 0);
++          handleSubmit();
++          return { submitted };
++        }
++        case "turn.interrupt":
++          if (!interruptActiveRun()) throw new ControlActionError("not_active", "No turn is currently active.");
++          return { interrupted: true };
++        case "mode.cycle":
++          if (isProcessingRef.current)
++            throw new ControlActionError("busy", "Mode cannot change during an active turn.");
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError("unavailable", "Mode cannot change while a modal or question is open.");
++          }
++          cycleMode();
++          return { mode: MODES[(MODES.findIndex((entry) => entry.id === mode) + 1) % MODES.length].id };
++        case "composer.togglePlanMode": {
++          if (isProcessingRef.current)
++            throw new ControlActionError("busy", "Plan mode cannot change during an active turn.");
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError("unavailable", "Plan mode cannot change while a modal or question is open.");
++          }
++          const nextMode: AgentMode = mode === "plan" ? "agent" : "plan";
++          setMode(nextMode);
++          return { mode: nextMode };
++        }
++        case "approval.respond":
++          if (action.decision !== "approve" && action.decision !== "decline") {
++            throw new ControlActionError("invalid_request", "approval.respond requires approve or decline.");
++          }
++          if (!respondToPendingApproval(action.decision)) {
++            throw new ControlActionError("not_pending", "No approval request is pending.");
++          }
++          return { decision: action.decision };
++        case "session.new": {
++          if (isProcessingRef.current)
++            throw new ControlActionError("busy", "A new session cannot start during an active turn.");
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError(
++              "unavailable",
++              "A new session cannot start while a modal or question is open.",
++            );
++          }
++          resetToNewSession();
++          return { sessionId: agent.getSessionId() };
++        }
++        case "thread.select": {
++          if (isProcessingRef.current)
++            throw new ControlActionError("busy", "A session cannot change during an active turn.");
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError("unavailable", "A session cannot change while a modal or question is open.");
++          }
++          if (typeof action.sessionId !== "string" || !action.sessionId) {
++            throw new ControlActionError("invalid_request", "thread.select requires a sessionId.");
++          }
++          const snapshot = selectSession(action.sessionId);
++          return { sessionId: snapshot.session.id };
++        }
++        case "thread.fork": {
++          if (isProcessingRef.current)
++            throw new ControlActionError("busy", "A session cannot fork during an active turn.");
++          if (blockPrompt || showPlanPanel) {
++            throw new ControlActionError("unavailable", "A session cannot fork while a modal or question is open.");
++          }
++          const snapshot = forkSession();
++          return { sessionId: snapshot.session.id };
++        }
++        case "reasoning.adjust": {
++          if (action.direction !== "increase" && action.direction !== "decrease") {
++            throw new ControlActionError("invalid_request", "reasoning.adjust requires increase or decrease.");
++          }
++          if (isProcessingRef.current) {
++            throw new ControlActionError("busy", "Reasoning effort cannot change during an active turn.");
++          }
++          if (getSupportedReasoningEfforts(model).length === 0) {
++            throw new ControlActionError("unavailable", "The current model does not expose reasoning effort.");
++          }
++          adjustModelReasoningEffort(model, reasoningDirectionDelta(action.direction));
++          return { model, direction: action.direction };
++        }
++        case "conversation.scroll": {
++          if (action.direction !== "up" && action.direction !== "down" && action.direction !== "bottom") {
++            throw new ControlActionError("invalid_request", "conversation.scroll requires up, down, or bottom.");
++          }
++          try {
++            if (!applyConversationScroll(scrollRef.current, action.direction, scrollToBottom)) {
++              throw new ControlActionError("unavailable", "The conversation view is not mounted.");
++            }
++          } catch (error) {
++            if (error instanceof ControlActionError) throw error;
++            throw new ControlActionError("unavailable", "The conversation could not be scrolled.");
++          }
++          return { direction: action.direction };
++        }
++        case "composer.toggleFastMode":
++        case "navigate":
++        case "sidebar.toggle":
++        case "settings.open":
++          throw new ControlActionError("unsupported", `Grok does not implement the exact ${action.type} action.`);
++        default:
++          throw new ControlActionError(
++            "unsupported",
++            `Grok does not implement the exact ${(action as { type?: unknown }).type ?? "unknown"} action.`,
++          );
++      }
++    };
++
++    return controlServer.setActionHandler(handleControlAction);
++  }, [
++    agent,
++    adjustModelReasoningEffort,
++    blockPrompt,
++    controlServer,
++    cycleMode,
++    handleSubmit,
++    interruptActiveRun,
++    mode,
++    model,
++    resetToNewSession,
++    respondToPendingApproval,
++    selectSession,
++    forkSession,
++    setMode,
++    showPlanPanel,
++    scrollToBottom,
++  ]);
++
+   const hasMessages = messages.length > 0 || streamContent || isProcessing;
+ 
+   return (

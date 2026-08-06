@@ -1,0 +1,14 @@
+{
+  "description": "Fallback-only Grok lifecycle forwarding. Prefer the authenticated local-control adapter.",
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Stop",
+    "StopFailure",
+    "SessionEnd"
+  ],
+  "installer": "node packages/bridge/dist/install.js"
+}
