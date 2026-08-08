@@ -1,7 +1,6 @@
 # Grok Micro
 
-Clean-room [Work Louder Codex Micro](https://worklouder.cc) control-surface
-integration for [Grok CLI](https://github.com/superagent-ai/grok-cli).
+Brings the [Work Louder Codex Micro](https://worklouder.cc) macropad to [Grok CLI](https://github.com/superagent-ai/grok-cli).
 
 Six live Agent Keys, factory lighting/gestures, and authenticated routing to the
 exact Grok session each key represents — without redistributing proprietary
