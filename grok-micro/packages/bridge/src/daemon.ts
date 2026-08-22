@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { resolveRuntimeFile } from "./runtime-paths";
 import { execFile } from "node:child_process";
 import {
   AGENT_KEY_COUNT,
@@ -24,10 +25,10 @@ import {
   type PublicDeviceState,
 } from "./device-health";
 
-const socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
-const slotsPath = process.env.GROK_MICRO_SLOTS ?? "/private/tmp/grok-micro-slots.json";
-const healthPath = process.env.GROK_MICRO_HEALTH ?? "/private/tmp/grok-micro-health.json";
-const deviceLockPath = process.env.GROK_MICRO_DEVICE_LOCK ?? "/private/tmp/grok-micro-device.lock";
+const socketPath = resolveRuntimeFile("socket");
+const slotsPath = resolveRuntimeFile("slots");
+const healthPath = resolveRuntimeFile("health");
+const deviceLockPath = resolveRuntimeFile("lock");
 const maxMessageBytes = Number(process.env.GROK_MICRO_MAX_MESSAGE_BYTES ?? 262_144);
 const brightness = Math.max(0, Math.min(1, Number(process.env.GROK_MICRO_BRIGHTNESS ?? 1)));
 const inputQuietMs = Number(process.env.GROK_MICRO_INPUT_QUIET_MS ?? 100);

@@ -1,14 +1,14 @@
 import {
   openCodexMicro,
   sendRequestAndAwaitResponse
-} from "../chunk-XIQYL2JY.js";
+} from "../chunk-2HXYGS3R.js";
 import {
   LightingEffect,
   agentKeyStatusRequest,
   assertAgentKeyIndex,
   encodeAgentKeyLighting,
   firmwareVersionRequest
-} from "../chunk-NMGE7OG4.js";
+} from "../chunk-5DJFD5RM.js";
 
 // tools/query-firmware.ts
 var device = await openCodexMicro();

@@ -1,7 +1,11 @@
+import {
+  resolveRuntimeFile
+} from "./chunk-6JAPGSLE.js";
+
 // src/event.ts
 import fs from "fs";
 import net from "net";
-var socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
+var socketPath = resolveRuntimeFile("socket");
 if (!fs.existsSync(socketPath)) process.exit(0);
 var input = "";
 for await (const chunk of process.stdin) input += chunk;

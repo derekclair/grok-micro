@@ -9,25 +9,29 @@ Instructions for AI agents (and humans) working in this repository.
 **Default branch:** `main` (tracks `origin/main`)  
 **Visibility:** public
 
-Code is on GitHub. Treat product maturity as **pre-release** until physical
-smoke against a real Codex Micro is done and documented:
+Code is on GitHub. Treat product maturity as **pre-release**. Linux USB HID
+against a real Codex Micro (vendor RPC, udev hidraw, daemon, control-stub
+routing) is documented; interactive Grok CLI + BLE pairing slots are not a
+full production gate yet:
 
 - Unit tests pass (`pnpm verify` in `grok-micro/`, control tests in `grok-cli/`)
-- **Hardware smoke is still the gate** for calling a given revision “production
-  ready” or tagging a release
-- Do not invent release notes that claim device-verified parity without a real
-  Micro walkthrough
+- **Do not invent release notes** that claim native Codex-desktop parity or
+  macOS app-focus on Linux
+- Never commit `~/.grok/control/`, hidraw serials, Bluetooth addresses, or host names
 
 ### Remaining next steps
 
-1. **Physical smoke (blocking for “production ready”)**  
+1. **Physical smoke (USB HID done; remaining for “production ready”)**  
    - Connect a Work Louder Codex Micro (USB preferred).  
+   - Linux: `sudo ./linux/install-udev.sh` then unplug/replug.  
    - `cd grok-micro && pnpm install && pnpm doctor && pnpm start`  
-   - Run patched Grok CLI interactively so `~/.grok/control/<pid>.json` appears.  
+   - For HID-only smoke: `pnpm control-stub` so Agent Keys get six idle slots.  
+   - For product smoke: run patched Grok CLI interactively so
+     `~/.grok/control/<pid>.json` appears.  
    - Exercise: Agent Key select/double-tap focus, approve/decline, fork, submit,
      encoder modes, joystick, ACT11 ignored, lighting states in `PARITY.md`.  
-   - Confirm Karabiner / Logitech Options+ are not stealing HID (Work Louder
-     documents interference with Micro ↔ host apps).
+   - Do not run Work Louder Input at the same time as this daemon.  
+   - Confirm Karabiner / Logitech Options+ are not stealing HID on macOS.
 
 2. **Post-publish hygiene**  
    - Enable Security Advisories / private vulnerability reporting on GitHub.  
@@ -137,8 +141,12 @@ https://github.com/superagent-ai/grok-cli @ fb97af83f06dca873281d60168430f06c8de
 
 7. **Do not expose** `sys.bootloader` or firmware filesystem write APIs.
 
-8. **macOS-first.** Bridge depends on HID + Terminal/iTerm focus helpers. Do not
-   casually claim Linux/Windows support without implementing and testing it.
+8. **Platform scope.** HID + lighting + control routing are implemented for
+   macOS and Linux. Exact Terminal/iTerm app focus is macOS-only and must fail
+   closed as `unsupported` elsewhere. Linux hidraw needs the shipped udev
+   rules (USB `ATTRS{idVendor}=303a`, BLE `KERNELS==0005:303A:*`). Infer
+   `usb`/`bluetooth` on Linux from sysfs `HID_ID` bus `0003`/`0005` — `/dev/hidraw*`
+   paths do not contain those words.
 
 ---
 
@@ -164,7 +172,8 @@ pnpm uninstall-hooks
 Useful env vars (defaults in `grok-micro/README.md`):
 
 - `GROK_MICRO_CONTROL_DIR` → `~/.grok/control`
-- `GROK_MICRO_SOCKET` / `GROK_MICRO_SLOTS` / `GROK_MICRO_HEALTH`
+- `GROK_MICRO_SOCKET` / `GROK_MICRO_SLOTS` / `GROK_MICRO_HEALTH` / `GROK_MICRO_DEVICE_LOCK`
+- `GROK_MICRO_RUNTIME_DIR` → directory for those files when the individual vars are unset (Linux: `os.tmpdir()`; macOS: `/private/tmp`)
 - `GROK_MICRO_BRIGHTNESS`, `GROK_MICRO_AUTO_OFF_MS`
 - `GROK_MICRO_ENCODER_MODE`, `GROK_MICRO_SINGLE_TAP_FOCUS`
 
@@ -224,6 +233,8 @@ State the new upstream pin in README/`AGENTS.md` if you move the base commit.
 | Terminal focus | `focus.ts`, `focus-state.ts` |
 | Hook install merge | `install.ts` |
 | Diagnostics | `doctor.ts`, `device-health.ts` |
+| Linux hidraw udev | `grok-micro/linux/` |
+| Control-plane smoke without Grok TUI | `packages/bridge/tools/control-stub.ts` |
 | Grok control server / types / UI actions | `grok-cli/src/control/` |
 | Control doc for humans | `grok-cli/docs/local-control.md` |
 | Parity authority | `PARITY.md`, `native-parity-fixtures.json` |

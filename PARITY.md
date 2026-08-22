@@ -18,6 +18,8 @@ Clean-room interoperability contract derived from observable behavior in Codex d
 
 On macOS, open asynchronously and non-exclusively. Prefer USB candidates, then Bluetooth; within a transport prefer Codex Micro, then Creator Micro V2. Present transport as `usb`, `bluetooth`, or `unknown`.
 
+On Linux the vendor RPC collection lives on the same hidraw node as keyboard/mouse (combined report descriptor, report ID 6, usage page `0xFF00`). `node-hid` still enumerates that collection. Infer transport from sysfs `HID_ID` bus `0003` (USB) or `0005` (Bluetooth); `/dev/hidraw*` paths are not marked `usb`/`bluetooth`. BLE hidraw requires a udev rule that matches `KERNELS=="0005:303A:*"` because there is no USB `idVendor` parent.
+
 Requests are JSON `{method, params, id}` with random integer ID `0..998`; no `jsonrpc` member. Escape non-ASCII as JSON Unicode escapes. Fragment consecutive 61-byte chunks. Serialize requests through one queue, wait 50 ms between jobs, and fail a response after 10 seconds. Retry one timeout immediately.
 
 Notifications accept long or compact fields: `method|m`, `params|p`, `id|i`. The required methods are:

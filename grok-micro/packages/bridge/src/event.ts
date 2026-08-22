@@ -1,8 +1,9 @@
 /** Minimal fallback hook forwarder for Grok CLI builds without native events. */
 import fs from "node:fs";
 import net from "node:net";
+import { resolveRuntimeFile } from "./runtime-paths";
 
-const socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
+const socketPath = resolveRuntimeFile("socket");
 if (!fs.existsSync(socketPath)) process.exit(0);
 
 let input = "";

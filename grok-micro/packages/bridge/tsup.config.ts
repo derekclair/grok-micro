@@ -9,6 +9,7 @@ export default defineConfig({
     "tools/query-firmware": "tools/query-firmware.ts",
     "tools/pulse-board": "tools/pulse-board.ts",
     "tools/force-agent-key": "tools/force-agent-key.ts",
+    "tools/control-stub": "tools/control-stub.ts",
   },
   format: ["esm"],
   target: "node20",
