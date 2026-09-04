@@ -11,7 +11,7 @@ Codex Micro firmware or native modules.
 | --- | --- |
 | **Platform** | macOS (Node 20+, pnpm; Grok side uses Bun) |
 | **Hardware** | Codex Micro (`VID 0x303A` / `PID 0x8360`) or Creator Micro V2-compatible |
-| **Status** | Public pre-release on [GitHub](https://github.com/derekclair/grok-micro); unit-verified; physical USB/BLE smoke still recommended |
+| **Status** | Public on [GitHub](https://github.com/derekclair/grok-micro); USB smoke verified (connect + lighting + Agent Key select on firmware v0.6.1) |
 
 ## Repository layout
 
@@ -27,6 +27,23 @@ Codex Micro firmware or native modules.
 
 ## Quick start
 
+### Easiest (macOS, verified)
+
+```sh
+# Terminal A
+./scripts/start-daemon.sh
+
+# Terminal B (needs GROK_API_KEY or XAI_API_KEY in env / .env)
+./scripts/start-grok.sh
+
+# Optional
+./scripts/status.sh
+./scripts/stop-daemon.sh
+```
+
+Grant **Input Monitoring** to Terminal (or whatever hosts Node). Quit ChatGPT /
+Codex / Work Louder Input while using the daemon so they do not steal the pad.
+
 ### 1. Grok CLI with local control
 
 Use the included tree:
@@ -36,7 +53,7 @@ cd grok-cli
 bun install
 bun run typecheck
 bun run build
-node dist/index.js
+bun run dist/index.js --no-sandbox
 ```
 
 Or patch a pinned upstream checkout:

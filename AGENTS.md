@@ -9,34 +9,43 @@ Instructions for AI agents (and humans) working in this repository.
 **Default branch:** `main` (tracks `origin/main`)  
 **Visibility:** public
 
-Code is on GitHub. Treat product maturity as **pre-release** until physical
-smoke against a real Codex Micro is done and documented:
+Code is on GitHub. **USB hardware smoke passed (2026-09-04)** on firmware
+`v0.6.1`: daemon connects, factory lighting writes succeed, Agent Key presses
+emit `v.oai.hid` and route `thread.select` successfully into an authenticated
+Grok control session (`lastAction.ok: true`).
 
-- Unit tests pass (`pnpm verify` in `grok-micro/`, control tests in `grok-cli/`)
-- **Hardware smoke is still the gate** for calling a given revision “production
-  ready” or tagging a release
-- Do not invent release notes that claim device-verified parity without a real
-  Micro walkthrough
+Still treat remaining gesture coverage (approve/decline/fork/submit, encoder,
+joystick, MIC) as **needs ongoing exercise** before calling every PARITY.md
+case production-complete.
+
+### Daily run (verified)
+
+```sh
+# Terminal A — daemon (needs Input Monitoring for Terminal/node)
+/Users/derekclair/Code/github.com/derekclair/grok-micro/scripts/start-daemon.sh
+
+# Terminal B — patched Grok CLI with control protocol (NOT stock ~/.grok/bin/grok)
+/Users/derekclair/Code/github.com/derekclair/grok-micro/scripts/start-grok.sh
+
+# Status
+/Users/derekclair/Code/github.com/derekclair/grok-micro/scripts/status.sh
+```
+
+Requirements that bit us in smoke:
+
+- **Input Monitoring** for the app hosting Node (Terminal).
+- Quit **ChatGPT.app / Codex.app / Input.app** while testing — they fight for the pad.
+- Stock Grok uses OAuth and **lacks** local control; use `scripts/start-grok.sh`
+  (needs `GROK_API_KEY` or `XAI_API_KEY` in a sourced `.env`).
+- Prefer `node packages/bridge/dist/daemon.js` / the start script over `pnpm start`
+  if asdf `pnpm` shims fail in non-interactive shells.
 
 ### Remaining next steps
 
-1. **Physical smoke (blocking for “production ready”)**  
-   - Connect a Work Louder Codex Micro (USB preferred).  
-   - `cd grok-micro && pnpm install && pnpm doctor && pnpm start`  
-   - Run patched Grok CLI interactively so `~/.grok/control/<pid>.json` appears.  
-   - Exercise: Agent Key select/double-tap focus, approve/decline, fork, submit,
-     encoder modes, joystick, ACT11 ignored, lighting states in `PARITY.md`.  
-   - Confirm Karabiner / Logitech Options+ are not stealing HID (Work Louder
-     documents interference with Micro ↔ host apps).
-
-2. **Post-publish hygiene**  
-   - Enable Security Advisories / private vulnerability reporting on GitHub.  
-   - Optionally add CI: `grok-micro` → `pnpm verify`; `grok-cli` →
-     `bun run typecheck` + `bun test src/control/` (or `bun run test:control`).  
-   - Tag `v0.3.0` only after smoke; keep README status honest until then.  
-   - Consider whether the vendored full `grok-cli/` tree stays long-term or the
-     public story shrinks to `grok-micro/` + `grok-cli-control.patch` only.
-
+1. Exercise Approve / Reject / Fork / Submit / encoder / joystick on hardware;
+   confirm each updates `/private/tmp/grok-micro-health.json` → `lastAction`.
+2. **Post-publish hygiene** — Security Advisories, CI (`pnpm verify` + control
+   tests), optional `v0.3.0` tag after broader gesture smoke.
 3. **Do not push** secrets: discovery tokens, `~/.grok/control/`, API keys,
    session transcripts, or machine-local Input app storage.
 
