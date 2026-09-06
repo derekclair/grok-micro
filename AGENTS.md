@@ -353,3 +353,11 @@ Grok CLI** interoperability (HID, lighting, gestures, control protocol, or
 docs/security around that). If the request is general Grok CLI feature work
 unrelated to the pad, prefer contributing upstream to
 `superagent-ai/grok-cli` and only carry a minimal delta here.
+
+---
+
+## Learned Workspace Facts
+
+- The daemon is host-global. Start patched Grok from the target project with `scripts/start-grok.sh` so the CLI cwd is that repo; do not use stock `~/.grok/bin/grok` (no local control socket).
+- `scripts/status.sh` / doctor mix live HID and Unix-socket probes with leftover `/private/tmp/grok-micro-health.json`. A failed daemon socket means the daemon is not running even if that file still says `state=connected`.
+- Doctor “authenticated Grok control sessions” counts thread IDs inside `~/.grok/control/*.json` (one discovery file per CLI process), not the number of files.

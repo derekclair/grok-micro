@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { findCodexMicros } from "./micro";
 import { discoverControlRoutes } from "./grok-control";
+import { describeDaemonHealth, type HealthSnapshot } from "./doctor-report";
 import { resolveRuntimeFile, vendorInterfaceHint } from "./runtime-paths";
 
 const socketPath = resolveRuntimeFile("socket");
@@ -26,15 +27,6 @@ try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as Record<str
 const hooks = settings.hooks && typeof settings.hooks === "object" ? Object.keys(settings.hooks as object).length : 0;
 report(hooks > 0 || routes.size > 0, "Grok event source", routes.size ? "native control adapter" : hooks ? "fallback hooks" : "run pnpm run install-hooks");
 
-interface HealthSnapshot {
-  state?: string;
-  updatedAt?: string;
-}
-
-let health: HealthSnapshot | null = null;
-try { health = JSON.parse(fs.readFileSync(healthPath, "utf8")) as HealthSnapshot; } catch {}
-report(Boolean(health), "Daemon health", health ? `${health.state} at ${health.updatedAt}` : "not started");
-
 const probe = await new Promise<{ state?: string } | null>((resolve) => {
   const client = net.createConnection(socketPath);
   let body = "";
@@ -51,5 +43,10 @@ const probe = await new Promise<{ state?: string } | null>((resolve) => {
   });
   client.once("error", () => { clearTimeout(timer); resolve(null); });
 });
+
+let health: HealthSnapshot | null = null;
+try { health = JSON.parse(fs.readFileSync(healthPath, "utf8")) as HealthSnapshot; } catch {}
+const healthReport = describeDaemonHealth(health, probe);
+report(healthReport.ok, "Daemon health", healthReport.detail);
 report(Boolean(probe), "Daemon socket", probe ? `${socketPath} (${probe.state})` : "run pnpm start");
 if (failed) process.exitCode = 1;

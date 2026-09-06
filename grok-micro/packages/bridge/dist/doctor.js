@@ -14,6 +14,25 @@ import fs from "fs";
 import net from "net";
 import os from "os";
 import path from "path";
+
+// src/doctor-report.ts
+function describeDaemonHealth(health2, probe2) {
+  if (probe2) {
+    const state = probe2.state ?? health2?.state ?? "running";
+    return { ok: true, detail: health2?.updatedAt ? `${state} at ${health2.updatedAt}` : state };
+  }
+  if (!health2) return { ok: false, detail: "not started" };
+  const when = health2.updatedAt ?? "unknown time";
+  if (health2.state === "stopped") {
+    return { ok: false, detail: `stopped at ${when} \u2014 run pnpm start` };
+  }
+  return {
+    ok: false,
+    detail: `stale ${health2.state ?? "unknown"} snapshot at ${when} \u2014 daemon not running`
+  };
+}
+
+// src/doctor.ts
 var socketPath = resolveRuntimeFile("socket");
 var healthPath = resolveRuntimeFile("health");
 var settingsPath = process.env.GROK_SETTINGS_PATH ?? path.join(os.homedir(), ".grok", "user-settings.json");
@@ -34,12 +53,6 @@ try {
 }
 var hooks = settings.hooks && typeof settings.hooks === "object" ? Object.keys(settings.hooks).length : 0;
 report(hooks > 0 || routes.size > 0, "Grok event source", routes.size ? "native control adapter" : hooks ? "fallback hooks" : "run pnpm run install-hooks");
-var health = null;
-try {
-  health = JSON.parse(fs.readFileSync(healthPath, "utf8"));
-} catch {
-}
-report(Boolean(health), "Daemon health", health ? `${health.state} at ${health.updatedAt}` : "not started");
 var probe = await new Promise((resolve) => {
   const client = net.createConnection(socketPath);
   let body = "";
@@ -64,5 +77,12 @@ var probe = await new Promise((resolve) => {
     resolve(null);
   });
 });
+var health = null;
+try {
+  health = JSON.parse(fs.readFileSync(healthPath, "utf8"));
+} catch {
+}
+var healthReport = describeDaemonHealth(health, probe);
+report(healthReport.ok, "Daemon health", healthReport.detail);
 report(Boolean(probe), "Daemon socket", probe ? `${socketPath} (${probe.state})` : "run pnpm start");
 if (failed) process.exitCode = 1;
