@@ -24,7 +24,10 @@ export type GrokWireAction =
   | { type: "thread.select"; sessionId: string }
   | { type: "thread.fork" }
   | { type: "reasoning.adjust"; direction: "increase" | "decrease" }
-  | { type: "conversation.scroll"; direction: "up" | "down" | "bottom" };
+  | { type: "conversation.scroll"; direction: "up" | "down" | "bottom" }
+  | { type: "voice.pushToTalk.start" }
+  | { type: "voice.pushToTalk.stop" }
+  | { type: "voice.pushToTalk.latch" };
 
 export class UnsupportedActionError extends Error {
   readonly code = "unsupported";
@@ -53,6 +56,9 @@ export function wireActionFor(action: NativeAction, sessionId?: string): GrokWir
   if (action === "conversation.scrollDown") return { type: "conversation.scroll", direction: "down" };
   if (action === "conversation.scrollBottom") return { type: "conversation.scroll", direction: "bottom" };
   if (action === "thread.select" && sessionId) return { type: "thread.select", sessionId };
+  if (action === "voice.pushToTalk.start") return { type: "voice.pushToTalk.start" };
+  if (action === "voice.pushToTalk.stop") return { type: "voice.pushToTalk.stop" };
+  if (action === "voice.pushToTalk.latch") return { type: "voice.pushToTalk.latch" };
   throw new UnsupportedActionError(action);
 }
 

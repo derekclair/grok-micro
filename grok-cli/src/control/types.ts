@@ -31,7 +31,10 @@ export type SupportedControlAction =
   | { type: "thread.select"; sessionId: string }
   | { type: "thread.fork" }
   | { type: "reasoning.adjust"; direction: "increase" | "decrease" }
-  | { type: "conversation.scroll"; direction: "up" | "down" | "bottom" };
+  | { type: "conversation.scroll"; direction: "up" | "down" | "bottom" }
+  | { type: "voice.pushToTalk.start" }
+  | { type: "voice.pushToTalk.stop" }
+  | { type: "voice.pushToTalk.latch" };
 
 /** Native Micro concepts that Grok does not currently implement exactly. */
 export type UnsupportedNativeControlAction =
