@@ -11,11 +11,14 @@ see [ATTRIBUTION.md](ATTRIBUTION.md).
 
 ## Requirements
 
-- macOS, Node.js 20+, pnpm, and a Work Louder vendor interface at VID `303a`,
+- Node.js 20+, pnpm, and a Work Louder vendor interface at VID `303a`,
   usage page `ff00`: Codex Micro PID `8360`, or Creator Micro V2-compatible
   PID `33431`/`33432`
-- Input Monitoring permission for the process running the daemon
-- Grok CLI with local control protocol v1 for reliable events/actions
+- macOS: Input Monitoring permission for the process running the daemon
+- Linux: hidraw udev rules (`linux/install-udev.sh`) so USB and BLE nodes are
+  not `root:root` `0600`. App focus is unsupported (fail closed).
+- Grok CLI with local control protocol v1 for reliable events/actions, or
+  `pnpm control-stub` for HID/lighting/action-mapping smoke only
 
 The daemon reproduces the native candidate order: USB Codex Micro, USB Creator
 Micro V2, Bluetooth Codex Micro, then Bluetooth Creator Micro V2. Unknown
@@ -120,9 +123,11 @@ Useful environment variables:
 
 | Variable | Default |
 | --- | --- |
-| `GROK_MICRO_SOCKET` | `/private/tmp/grok-micro.sock` |
-| `GROK_MICRO_SLOTS` | `/private/tmp/grok-micro-slots.json` |
-| `GROK_MICRO_HEALTH` | `/private/tmp/grok-micro-health.json` |
+| `GROK_MICRO_SOCKET` | macOS `/private/tmp/grok-micro.sock`; otherwise `$TMPDIR/grok-micro.sock` |
+| `GROK_MICRO_SLOTS` | same directory, `grok-micro-slots.json` |
+| `GROK_MICRO_HEALTH` | same directory, `grok-micro-health.json` |
+| `GROK_MICRO_DEVICE_LOCK` | same directory, `grok-micro-device.lock` |
+| `GROK_MICRO_RUNTIME_DIR` | override the directory for all of the above |
 | `GROK_MICRO_CONTROL_DIR` | `~/.grok/control` |
 | `GROK_MICRO_BRIGHTNESS` | `1` |
 | `GROK_MICRO_AUTO_OFF_MS` | `180000` |

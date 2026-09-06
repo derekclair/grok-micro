@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { findCodexMicros } from "./micro";
 import { discoverControlRoutes } from "./grok-control";
+import { resolveRuntimeFile, vendorInterfaceHint } from "./runtime-paths";
 
-const socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
-const healthPath = process.env.GROK_MICRO_HEALTH ?? "/private/tmp/grok-micro-health.json";
+const socketPath = resolveRuntimeFile("socket");
+const healthPath = resolveRuntimeFile("health");
 const settingsPath = process.env.GROK_SETTINGS_PATH ?? path.join(os.homedir(), ".grok", "user-settings.json");
 let failed = false;
 function report(ok: boolean, label: string, detail = ""): void {
@@ -16,7 +17,7 @@ function report(ok: boolean, label: string, detail = ""): void {
 
 report(Number(process.versions.node.split(".")[0]) >= 20, "Node.js 20+", process.version);
 const devices = findCodexMicros();
-report(devices.length > 0, "Codex Micro vendor interface", devices.length ? `${devices.length} detected` : "connect the pad and grant Input Monitoring");
+report(devices.length > 0, "Codex Micro vendor interface", devices.length ? `${devices.length} detected` : vendorInterfaceHint());
 const routes = discoverControlRoutes();
 report(routes.size > 0, "Authenticated Grok control sessions", routes.size ? `${routes.size} available` : "start Grok CLI with the control adapter");
 

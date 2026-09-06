@@ -9,16 +9,27 @@ Instructions for AI agents (and humans) working in this repository.
 **Default branch:** `main` (tracks `origin/main`)
 **Visibility:** public
 
-Code is on GitHub. **USB hardware smoke passed (2026-09-04)** on firmware
-`v0.6.1`: daemon connects, factory lighting writes succeed, Agent Key presses
-emit `v.oai.hid` and route `thread.select` successfully into an authenticated
-Grok control session (`lastAction.ok: true`).
+Code is on GitHub. Treat product maturity as **pre-release**.
+
+**macOS USB hardware smoke passed (2026-09-04)** on firmware `v0.6.1`: daemon
+connects, factory lighting writes succeed, Agent Key presses emit `v.oai.hid`
+and route `thread.select` successfully into an authenticated Grok control
+session (`lastAction.ok: true`).
+
+**Linux USB HID** against a real Codex Micro (vendor RPC, udev hidraw, daemon,
+control-stub routing) is documented; interactive Grok CLI + BLE pairing slots
+are not a full production gate yet.
 
 Still treat remaining gesture coverage (approve/decline/fork/submit, encoder,
 joystick, MIC) as **needs ongoing exercise** before calling every PARITY.md
 case production-complete.
 
-### Daily run (verified)
+- Unit tests pass (`pnpm verify` in `grok-micro/`, control tests in `grok-cli/`)
+- **Do not invent release notes** that claim native Codex-desktop parity or
+  macOS app-focus on Linux
+- Never commit `~/.grok/control/`, hidraw serials, Bluetooth addresses, or host names
+
+### Daily run (verified on macOS)
 
 ```sh
 # Terminal A — daemon (needs Input Monitoring for Terminal/node)
@@ -40,9 +51,31 @@ Requirements that bit us in smoke:
 
 ### Remaining next steps
 
-1. Exercise Approve / Reject / Fork / Submit / encoder / joystick on hardware; confirm each updates `/private/tmp/grok-micro-health.json` → `lastAction`.
-2. **Post-publish hygiene** — Security Advisories, CI (`pnpm verify` + control tests), optional `v0.3.0` tag after broader gesture smoke.
-3. **Do not push** secrets: discovery tokens, `~/.grok/control/`, API keys, session transcripts, or machine-local Input app storage.
+1. **Physical smoke (USB HID done on macOS and Linux; remaining for “production ready”)**
+   - Exercise Approve / Reject / Fork / Submit / encoder / joystick on hardware;
+     confirm each updates health JSON → `lastAction` (macOS:
+     `/private/tmp/grok-micro-health.json`).
+   - Connect a Work Louder Codex Micro (USB preferred).
+   - Linux: `sudo ./linux/install-udev.sh` then unplug/replug.
+   - `cd grok-micro && pnpm install && pnpm doctor && pnpm start`
+   - For HID-only smoke: `pnpm control-stub` so Agent Keys get six idle slots.
+   - For product smoke: run patched Grok CLI interactively so
+     `~/.grok/control/<pid>.json` appears.
+   - Exercise: Agent Key select/double-tap focus, approve/decline, fork, submit,
+     encoder modes, joystick, ACT11 ignored, lighting states in `PARITY.md`.
+   - Do not run Work Louder Input at the same time as this daemon.
+   - Confirm Karabiner / Logitech Options+ are not stealing HID on macOS.
+
+2. **Post-publish hygiene**
+   - Enable Security Advisories / private vulnerability reporting on GitHub.
+   - Optionally add CI: `grok-micro` → `pnpm verify`; `grok-cli` →
+     `bun run typecheck` + `bun test src/control/` (or `bun run test:control`).
+   - Tag `v0.3.0` only after broader gesture smoke; keep README status honest until then.
+   - Consider whether the vendored full `grok-cli/` tree stays long-term or the
+     public story shrinks to `grok-micro/` + `grok-cli-control.patch` only.
+
+3. **Do not push** secrets: discovery tokens, `~/.grok/control/`, API keys,
+   session transcripts, or machine-local Input app storage.
 
 ### Push workflow (already configured)
 
@@ -76,7 +109,7 @@ Grok CLI (interactive)
   └─ LocalControlServer  →  ~/.grok/control/<pid>.json + Unix socket (0600)
          ▲ authenticate + NDJSON events/actions
          │
-grok-micro daemon (macOS)
+grok-micro daemon (macOS / Linux HID)
   ├─ discoverControlRoutes()  (owner, mode, PID, token checks)
   ├─ six-session registry + lighting policy
   └─ node-hid → vendor page 0xFF00 / report id 6 / RPC channel 2
@@ -166,8 +199,13 @@ not symbol- or flow-oriented (e.g. config strings, docs, one-off file reads).
 6. **Preserve protocol package purity.** `packages/protocol` stays dependency-
    free and Grok-agnostic. Grok-specific routing belongs in `packages/bridge`.
 7. **Do not expose** `sys.bootloader` or firmware filesystem write APIs.
-8. **macOS-first.** Bridge depends on HID + Terminal/iTerm focus helpers. Do not
-   casually claim Linux/Windows support without implementing and testing it.
+8. **Platform scope.** HID + lighting + control routing are implemented for
+   macOS and Linux. Exact Terminal/iTerm app focus is macOS-only and must fail
+   closed as `unsupported` elsewhere. Linux hidraw needs the shipped udev
+   rules (USB `ATTRS{idVendor}=303a`, BLE `KERNELS==0005:303A:*`). Infer
+   `usb`/`bluetooth` on Linux from sysfs `HID_ID` bus `0003`/`0005` — `/dev/hidraw*`
+   paths do not contain those words. Do not casually claim Windows support
+   without implementing and testing it.
 
 ---
 
@@ -193,7 +231,8 @@ pnpm uninstall-hooks
 Useful env vars (defaults in `grok-micro/README.md`):
 
 - `GROK_MICRO_CONTROL_DIR` → `~/.grok/control`
-- `GROK_MICRO_SOCKET` / `GROK_MICRO_SLOTS` / `GROK_MICRO_HEALTH`
+- `GROK_MICRO_SOCKET` / `GROK_MICRO_SLOTS` / `GROK_MICRO_HEALTH` / `GROK_MICRO_DEVICE_LOCK`
+- `GROK_MICRO_RUNTIME_DIR` → directory for those files when the individual vars are unset (Linux: `os.tmpdir()`; macOS: `/private/tmp`)
 - `GROK_MICRO_BRIGHTNESS`, `GROK_MICRO_AUTO_OFF_MS`
 - `GROK_MICRO_ENCODER_MODE`, `GROK_MICRO_SINGLE_TAP_FOCUS`
 
@@ -253,6 +292,8 @@ State the new upstream pin in README/`AGENTS.md` if you move the base commit.
 | Terminal focus                           | `focus.ts`, `focus-state.ts`                           |
 | Hook install merge                       | `install.ts`                                           |
 | Diagnostics                              | `doctor.ts`, `device-health.ts`                        |
+| Linux hidraw udev                        | `grok-micro/linux/`                                    |
+| Control-plane smoke without Grok TUI     | `packages/bridge/tools/control-stub.ts`                |
 | Grok control server / types / UI actions | `grok-cli/src/control/`                                |
 | Control doc for humans                   | `grok-cli/docs/local-control.md`                       |
 | Parity authority                         | `PARITY.md`, `native-parity-fixtures.json`             |

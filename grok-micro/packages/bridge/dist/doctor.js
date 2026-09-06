@@ -2,16 +2,20 @@ import {
   discoverControlRoutes
 } from "./chunk-BED3SB6Q.js";
 import {
+  resolveRuntimeFile,
+  vendorInterfaceHint
+} from "./chunk-6JAPGSLE.js";
+import {
   findCodexMicros
-} from "./chunk-NMGE7OG4.js";
+} from "./chunk-5DJFD5RM.js";
 
 // src/doctor.ts
 import fs from "fs";
 import net from "net";
 import os from "os";
 import path from "path";
-var socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
-var healthPath = process.env.GROK_MICRO_HEALTH ?? "/private/tmp/grok-micro-health.json";
+var socketPath = resolveRuntimeFile("socket");
+var healthPath = resolveRuntimeFile("health");
 var settingsPath = process.env.GROK_SETTINGS_PATH ?? path.join(os.homedir(), ".grok", "user-settings.json");
 var failed = false;
 function report(ok, label, detail = "") {
@@ -20,7 +24,7 @@ function report(ok, label, detail = "") {
 }
 report(Number(process.versions.node.split(".")[0]) >= 20, "Node.js 20+", process.version);
 var devices = findCodexMicros();
-report(devices.length > 0, "Codex Micro vendor interface", devices.length ? `${devices.length} detected` : "connect the pad and grant Input Monitoring");
+report(devices.length > 0, "Codex Micro vendor interface", devices.length ? `${devices.length} detected` : vendorInterfaceHint());
 var routes = discoverControlRoutes();
 report(routes.size > 0, "Authenticated Grok control sessions", routes.size ? `${routes.size} available` : "start Grok CLI with the control adapter");
 var settings = {};

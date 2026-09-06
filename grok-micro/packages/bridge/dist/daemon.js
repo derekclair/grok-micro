@@ -5,6 +5,9 @@ import {
   subscribeControlRoute
 } from "./chunk-BED3SB6Q.js";
 import {
+  resolveRuntimeFile
+} from "./chunk-6JAPGSLE.js";
+import {
   AGENT_KEY_COUNT,
   CodexMicro,
   LightingEffect,
@@ -16,7 +19,7 @@ import {
   modelForDescriptor,
   parseDeviceEvent,
   transportForDescriptor
-} from "./chunk-NMGE7OG4.js";
+} from "./chunk-5DJFD5RM.js";
 
 // src/daemon.ts
 import fs from "fs";
@@ -475,10 +478,10 @@ function failedTransition(hasConnected2) {
 }
 
 // src/daemon.ts
-var socketPath = process.env.GROK_MICRO_SOCKET ?? "/private/tmp/grok-micro.sock";
-var slotsPath = process.env.GROK_MICRO_SLOTS ?? "/private/tmp/grok-micro-slots.json";
-var healthPath = process.env.GROK_MICRO_HEALTH ?? "/private/tmp/grok-micro-health.json";
-var deviceLockPath = process.env.GROK_MICRO_DEVICE_LOCK ?? "/private/tmp/grok-micro-device.lock";
+var socketPath = resolveRuntimeFile("socket");
+var slotsPath = resolveRuntimeFile("slots");
+var healthPath = resolveRuntimeFile("health");
+var deviceLockPath = resolveRuntimeFile("lock");
 var maxMessageBytes = Number(process.env.GROK_MICRO_MAX_MESSAGE_BYTES ?? 262144);
 var brightness = Math.max(0, Math.min(1, Number(process.env.GROK_MICRO_BRIGHTNESS ?? 1)));
 var inputQuietMs = Number(process.env.GROK_MICRO_INPUT_QUIET_MS ?? 100);

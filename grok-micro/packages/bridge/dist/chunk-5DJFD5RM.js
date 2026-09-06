@@ -308,13 +308,39 @@ function encodeRequestPackets(request) {
 
 // src/micro.ts
 import { randomInt } from "crypto";
+import fs from "fs";
 import { HIDAsync, devices } from "node-hid";
-function transportForDescriptor(descriptor) {
+function hidBusTransport(hidId) {
+  const bus = hidId?.split(":")[0]?.toLowerCase();
+  if (bus === "0003") return "usb";
+  if (bus === "0005") return "bluetooth";
+  return null;
+}
+function hidIdFromUevent(uevent) {
+  return /^HID_ID=(\S+)/m.exec(uevent)?.[1];
+}
+function readLinuxHidUevent(hidrawPath) {
+  const name = /hidraw\d+$/.exec(hidrawPath)?.[0];
+  if (!name) return null;
+  try {
+    return fs.readFileSync(`/sys/class/hidraw/${name}/device/uevent`, "utf8");
+  } catch {
+    return null;
+  }
+}
+function transportForDescriptor(descriptor, readUevent = readLinuxHidUevent) {
   const transport = descriptor.transport?.toLowerCase();
   if (transport === "usb" || transport === "bluetooth") return transport;
   const markers = `${descriptor.path ?? ""} ${descriptor.product ?? ""}`;
   if (/bluetooth|\bble\b/i.test(markers)) return "bluetooth";
   if (/\busb\b/i.test(markers)) return "usb";
+  if (descriptor.path) {
+    const uevent = readUevent(descriptor.path);
+    if (uevent) {
+      const fromHidId = hidBusTransport(hidIdFromUevent(uevent));
+      if (fromHidId) return fromHidId;
+    }
+  }
   return "unknown";
 }
 function modelForDescriptor(descriptor) {

@@ -1,5 +1,6 @@
 // node-hid transport. Wire encoding remains in codex-micro-protocol.
 import { randomInt } from "node:crypto";
+import fs from "node:fs";
 import { HIDAsync, devices, type Device } from "node-hid";
 import {
   RpcMessageStream,
@@ -12,12 +13,44 @@ import {
 type TransportDescriptor = Device & { transport?: string };
 export type CodexMicroTransport = "usb" | "bluetooth" | "unknown";
 
-export function transportForDescriptor(descriptor: Device): CodexMicroTransport {
+/** Linux HID_ID bus: 0003 = USB, 0005 = Bluetooth. */
+export function hidBusTransport(hidId: string | undefined | null): CodexMicroTransport | null {
+  const bus = hidId?.split(":")[0]?.toLowerCase();
+  if (bus === "0003") return "usb";
+  if (bus === "0005") return "bluetooth";
+  return null;
+}
+
+export function hidIdFromUevent(uevent: string): string | undefined {
+  return /^HID_ID=(\S+)/m.exec(uevent)?.[1];
+}
+
+function readLinuxHidUevent(hidrawPath: string): string | null {
+  const name = /hidraw\d+$/.exec(hidrawPath)?.[0];
+  if (!name) return null;
+  try {
+    return fs.readFileSync(`/sys/class/hidraw/${name}/device/uevent`, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+export function transportForDescriptor(
+  descriptor: Device,
+  readUevent: (hidrawPath: string) => string | null = readLinuxHidUevent,
+): CodexMicroTransport {
   const transport = (descriptor as TransportDescriptor).transport?.toLowerCase();
   if (transport === "usb" || transport === "bluetooth") return transport;
   const markers = `${descriptor.path ?? ""} ${descriptor.product ?? ""}`;
   if (/bluetooth|\bble\b/i.test(markers)) return "bluetooth";
   if (/\busb\b/i.test(markers)) return "usb";
+  if (descriptor.path) {
+    const uevent = readUevent(descriptor.path);
+    if (uevent) {
+      const fromHidId = hidBusTransport(hidIdFromUevent(uevent));
+      if (fromHidId) return fromHidId;
+    }
+  }
   return "unknown";
 }
 

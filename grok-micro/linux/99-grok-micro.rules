@@ -1,0 +1,8 @@
+# Work Louder Codex Micro / Creator Micro V2 (VID 303A)
+# USB hidraw has a USB parent, so ATTRS{idVendor} matches.
+# Bluetooth HID-over-GATT hidraw has no USB parent — match the HID kernel
+# name instead: bus 0005 = Bluetooth, VID in uppercase hex.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="303a", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:303A:*", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="303a", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", MODE="0666", GROUP="plugdev", TAG+="uaccess"

@@ -19,6 +19,15 @@ The daemon needs **Input Monitoring** (and a connected Work Louder device) to
 open the vendor HID interface. Prefer running the daemon under the same user as
 the interactive Grok session.
 
+## Linux hidraw
+
+Without udev, Codex Micro hidraw nodes are often `root:root` mode `0600`, which
+blocks the daemon. `grok-micro/linux/99-grok-micro.rules` matches USB by vendor
+id and Bluetooth HID by kernel name `0005:303A:*` (BLE hidraw has no USB
+parent). The shipped mode `0666` / group `plugdev` matches the Work Louder
+Input Linux installer. Install with `sudo ./linux/install-udev.sh`. Do not
+commit `udevadm` dumps that include serials or Bluetooth addresses.
+
 ## Reporting issues
 
 Open a private security report via GitHub Security Advisories on this repository

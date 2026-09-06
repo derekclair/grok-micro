@@ -1,7 +1,6 @@
 # Grok Micro
 
-Clean-room [Work Louder Codex Micro](https://worklouder.cc) control-surface
-integration for [Grok CLI](https://github.com/superagent-ai/grok-cli).
+Brings the [Work Louder Codex Micro](https://worklouder.cc) macropad to [Grok CLI](https://github.com/superagent-ai/grok-cli).
 
 Six live Agent Keys, factory lighting/gestures, and authenticated routing to the
 exact Grok session each key represents — without redistributing proprietary
@@ -9,15 +8,15 @@ Codex Micro firmware or native modules.
 
 | | |
 | --- | --- |
-| **Platform** | macOS (Node 20+, pnpm; Grok side uses Bun) |
+| **Platform** | macOS (native app focus) and Linux HID (USB smoked; BLE needs udev). Node 20+, pnpm; Grok side uses Bun |
 | **Hardware** | Codex Micro (`VID 0x303A` / `PID 0x8360`) or Creator Micro V2-compatible |
-| **Status** | Public on [GitHub](https://github.com/derekclair/grok-micro); USB smoke verified (connect + lighting + Agent Key select on firmware v0.6.1) |
+| **Status** | Public pre-release on [GitHub](https://github.com/derekclair/grok-micro); macOS USB smoke verified (connect + lighting + Agent Key select on firmware v0.6.1); Linux USB HID + control-stub smoked on a real Codex Micro |
 
 ## Repository layout
 
 ```text
 .
-├── grok-micro/                 # HID daemon, protocol package, doctor, hooks
+├── grok-micro/                 # HID daemon, protocol package, doctor, hooks, Linux udev
 ├── grok-cli/                   # Grok CLI tree + local control protocol (v1)
 ├── grok-cli-control.patch      # Same Grok-side changes for a clean upstream checkout
 ├── PARITY.md                   # Native behavioral contract
@@ -79,9 +78,21 @@ pnpm verify
 pnpm start
 ```
 
-Grant **Input Monitoring** when macOS prompts. Run `pnpm doctor` if the device
-is not detected. Work Louder documents that Karabiner / Logitech Options+ can
-interfere with Micro communication.
+Grant **Input Monitoring** when macOS prompts. On Linux, install hidraw udev
+rules so the daemon can open the vendor interface without root:
+
+```sh
+sudo ./linux/install-udev.sh   # from grok-micro/
+```
+
+Run `pnpm doctor` if the device is not detected. Work Louder documents that
+Karabiner / Logitech Options+ can interfere with Micro communication. Do not
+run the Work Louder Input AppImage at the same time as this daemon — both open
+the same HID interface.
+
+Optional: `pnpm control-stub` publishes a local Grok control v1 socket so Agent
+Keys light and gestures can be smoked without an interactive Grok CLI session.
+It writes `~/.grok/control/<pid>.json` (mode `0600`); treat that file as secret.
 
 Optional degraded lighting-only hooks (no authenticated action route):
 
@@ -111,15 +122,23 @@ Details: [`PARITY.md`](PARITY.md) and
 
 ## Verification
 
-Run on this tree (2026-08-05):
+Run on this tree:
 
 | Package | Result |
 | --- | --- |
-| `grok-micro` `pnpm verify` | build + `tsc` + **83** tests pass |
-| `grok-cli` control suite | **8** focused tests pass; `tsc --noEmit` clean |
+| `grok-micro` `pnpm verify` | build + `tsc` + protocol/bridge tests |
+| `grok-cli` control suite | `bun run test:control`; `tsc --noEmit` clean |
 
-Physical device smoke tests are still required before calling a given machine
-“production ready.” Exercise the acceptance cases in `PARITY.md`.
+Linux USB HID was smoked on a real Codex Micro: vendor RPC (`sys.version`,
+`device.status`, lighting), udev-backed hidraw, daemon reconnect, and
+control-stub action routing (Agent Key select `ok`; FAST remains
+`unsupported`). Bluetooth HOGP enumerates the same vendor collection once the
+udev BLE rule is installed; treat BLE pairing slots as a later pass. App focus
+is still macOS-only.
+
+Exercise the remaining acceptance cases in `PARITY.md` against interactive
+Grok CLI (not only the control stub) before calling a revision production
+ready.
 
 ## Security model
 
