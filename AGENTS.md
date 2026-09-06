@@ -297,6 +297,7 @@ State the new upstream pin in README/`AGENTS.md` if you move the base commit.
 | Grok control server / types / UI actions | `grok-cli/src/control/`                                |
 | Control doc for humans                   | `grok-cli/docs/local-control.md`                       |
 | Parity authority                         | `PARITY.md`, `native-parity-fixtures.json`             |
+| SDD: native Grok Build pad (draft)       | `specs/xai-leader-adapter.md`, `plans/xai-leader-adapter.md`, `DECISIONS.md` |
 
 ---
 
