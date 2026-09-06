@@ -4,17 +4,17 @@ Clean-room interoperability contract derived from observable behavior in Codex d
 
 ## 1. Device and transport
 
-| Constant | Value |
-|---|---:|
-| Work Louder VID | `0x303A` (`12346`) |
-| Codex Micro PID | `0x8360` (`33632`) |
-| Creator Micro V2 compatible PIDs | `33431`, `33432` |
-| Vendor usage page | `0xFF00` (`65280`) |
-| HID report ID | `6` |
-| RPC channel | `2` |
-| Report length | `64` bytes |
-| Header | `[reportId, channel, chunkLength]` |
-| Maximum payload | `61` UTF-8 bytes/report |
+| Constant                         |                              Value |
+| -------------------------------- | ---------------------------------: |
+| Work Louder VID                  |                 `0x303A` (`12346`) |
+| Codex Micro PID                  |                 `0x8360` (`33632`) |
+| Creator Micro V2 compatible PIDs |                   `33431`, `33432` |
+| Vendor usage page                |                 `0xFF00` (`65280`) |
+| HID report ID                    |                                `6` |
+| RPC channel                      |                                `2` |
+| Report length                    |                         `64` bytes |
+| Header                           | `[reportId, channel, chunkLength]` |
+| Maximum payload                  |            `61` UTF-8 bytes/report |
 
 On macOS, open asynchronously and non-exclusively. Prefer USB candidates, then Bluetooth; within a transport prefer Codex Micro, then Creator Micro V2. Present transport as `usb`, `bluetooth`, or `unknown`.
 
@@ -86,14 +86,14 @@ For agent keys, `off` always wins. Otherwise `selected || pulsing` changes the e
 
 ## 4. Lighting constants and snapshots
 
-| State | RGB | Decimal |
-|---|---:|---:|
-| working | `#304FFE` | `3166206` |
-| unread | `#00FF4C` | `65356` |
-| idle | `#FFFFFF` | `16777215` |
+| State                      |       RGB |    Decimal |
+| -------------------------- | --------: | ---------: |
+| working                    | `#304FFE` |  `3166206` |
+| unread                     | `#00FF4C` |    `65356` |
+| idle                       | `#FFFFFF` | `16777215` |
 | awaiting approval/response | `#FF6D00` | `16739584` |
-| error | `#FF0033` | `16711731` |
-| off | `#000000` | `0` |
+| error                      | `#FF0033` | `16711731` |
+| off                        | `#000000` |        `0` |
 
 Effects: off `0`, solid `1`, snake `2`, rainbow `3`, breath `4`, gradient `5`, shallow breath `6`.
 
@@ -114,14 +114,14 @@ Auto-dim sends both global zones and all six agents off. HID always restores/res
 
 Agent keys are `AG00..AG05`. Action positions are `ACT06..ACT12`. The wide microphone key reports ACT10 and ACT11; ignore ACT11 and bind ACT10.
 
-| Position | Keycap | Action |
-|---|---|---|
-| ACT06 | FAST | `composer.toggleFastMode` |
-| ACT07 | APPR | `approval.approve` |
-| ACT08 | REJ | `approval.decline` |
-| ACT09 | SPLIT | `forkThread` |
-| ACT10/11 | MIC | push-to-talk |
-| ACT12 | CODEX | `composer.submit` |
+| Position | Keycap | Action                    |
+| -------- | ------ | ------------------------- |
+| ACT06    | FAST   | `composer.toggleFastMode` |
+| ACT07    | APPR   | `approval.approve`        |
+| ACT08    | REJ    | `approval.decline`        |
+| ACT09    | SPLIT  | `forkThread`              |
+| ACT10/11 | MIC    | push-to-talk              |
+| ACT12    | CODEX  | `composer.submit`         |
 
 Agent source is `recent` by default. Alternatives are `pinned`, `priority`, and `custom`. Custom assignments may be a task, command, swappable keycap behavior, or skill. Default `singleTapAgentKeys=false`.
 
@@ -167,12 +167,12 @@ Voice Chat mode uses a 500 ms threshold: short press toggles mute or starts Voic
 
 The stick activates at distance `>=0.5`, returns to neutral below `0.5`, and fires only when cardinal direction changes.
 
-| Direction | Angle range |
-|---|---|
-| down | `[0.125, 0.375)` |
-| left | `[0.375, 0.625)` |
-| up | `[0.625, 0.875)` |
-| right | remaining normalized angles |
+| Direction | Angle range                 |
+| --------- | --------------------------- |
+| down      | `[0.125, 0.375)`            |
+| left      | `[0.375, 0.625)`            |
+| up        | `[0.625, 0.875)`            |
+| right     | remaining normalized angles |
 
 Show joystick feedback for 600 ms after activity.
 
