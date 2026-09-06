@@ -31,3 +31,5 @@ coverage/
 tmp/
 temp/
 *.sock
+
+.cursor
